@@ -44,7 +44,14 @@
   function ajustar(alvo, pos) { const f = Math.max(1, 1.08 / Math.max(cam.aspect, .3)); return pos.clone().sub(alvo).multiplyScalar(f).add(alvo); }
   function vista(v) {
     if (!v) return;
-    const a = new T.Vector3(...v[2]); voarPara(a, ajustar(a, new T.Vector3(...v[1])));
+    const a = new T.Vector3(...v[2]); let p = ajustar(a, new T.Vector3(...v[1]));
+    // vista geral: afasta a câmera até o modelo inteiro caber (deixando margem para os rótulos)
+    if (est.modo === "modelo" && est.esfera && MODELOS[est.modeloId].vistas[0] === v && est.modeloId !== "escala") {
+      const vf = T.MathUtils.degToRad(cam.fov) / 2, hf = Math.atan(Math.tan(vf) * cam.aspect);
+      const precisa = (est.esfera.radius + est.esfera.center.distanceTo(a)) / Math.sin(Math.min(vf, hf)) * .98;
+      const d = p.distanceTo(a); if (precisa > d) p = p.clone().sub(a).multiplyScalar(precisa / d).add(a);
+    }
+    voarPara(a, p);
     if (v[3] && v[3].corte !== undefined) definirCorte(v[3].corte);
   }
   function montarVistas(lista) {
@@ -76,6 +83,9 @@
     const def = MODELOS[id], md = def.construir();
     est.modo = "modelo"; est.modeloId = id; est.ultimoModelo = id; est.atual = md;
     cena.add(md.raiz);
+    { const bx = new T.Box3(), b2 = new T.Box3(); md.raiz.updateMatrixWorld(true);
+      md.raiz.traverse(o => { if (o.isMesh && !o.userData.semCaixa) { if (!o.geometry.boundingBox) o.geometry.computeBoundingBox(); b2.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); bx.union(b2); } });
+      est.esfera = bx.isEmpty() ? null : bx.getBoundingSphere(new T.Sphere()); }
     Object.entries(md.partes).forEach(([p, meshes]) => {
       const s = new Set(); meshes.forEach(m => (Array.isArray(m.material) ? m.material : [m.material]).forEach(x => s.add(x)));
       est.mats[p] = [...s]; est.mats[p].forEach(x => { x.userData.dw0 = x.depthWrite; x.userData.em0 = x.emissive.getHex(); x.userData.ei0 = x.emissiveIntensity; });
@@ -125,19 +135,55 @@
   $("#corteVal").oninput = atualizarCorte;
 
   /* ------------------------------ RÓTULOS ------------------------------ */
+  function corTexto(hex) { // texto escuro em fundo claro, branco em fundo escuro
+    const c = new T.Color(hex), l = 0.2126 * c.r + 0.7152 * c.g + 0.0722 * c.b;
+    return l > 0.28 ? "#08111f" : "#ffffff";
+  }
   function criarRotulos(lista) {
     const box = $("#rotulos"); box.innerHTML = '<svg class="linhas-rot" aria-hidden="true"></svg>'; est.rotEls = [];
     est.svgRot = box.querySelector("svg");
     lista.forEach(r => {
-      const el = document.createElement("div"); el.className = "rot"; el.textContent = r.txt; el.style.setProperty("--c", r.cor || "#5eead4");
+      const cor = r.cor || "#5eead4", el = document.createElement("div"); el.className = "rot"; el.textContent = r.txt;
+      el.style.setProperty("--c", cor); el.style.setProperty("--ct", corTexto(cor));
       if (r.parte) el.onclick = () => selecionar(r.parte, false);
-      box.appendChild(el); r.el = el; r.tam = null; est.rotEls.push(r);
+      box.appendChild(el); r.el = el; r.cor = cor; r.tam = null; est.rotEls.push(r);
     });
   }
-  /* Rótulos sem sobreposição: cada rótulo tenta ficar logo acima do seu ponto; se bater
-     em outro já posicionado, procura um lugar livre acima/abaixo/ao lado e liga-se ao
-     ponto por uma linha. Se não houver espaço, fica oculto (o selecionado sempre aparece). */
-  const _v = new T.Vector3();
+
+  /* ---- Contorno do modelo na tela (retângulo das partes visíveis) ---- */
+  const _v = new T.Vector3(), _bx = new T.Box3(), _b2 = new T.Box3(), _cn = new T.Vector3();
+  function contornoTela(w, h) {
+    if (!est.atual) return null;
+    _bx.makeEmpty();
+    est.atual.raiz.traverseVisible(o => {
+      if (!o.isMesh || o.isInstancedMesh || o.userData.semCaixa) return;
+      if (o.material && o.material.opacity < .05) return;
+      if (!o.geometry.boundingBox) o.geometry.computeBoundingBox();
+      _b2.copy(o.geometry.boundingBox).applyMatrix4(o.matrixWorld); _bx.union(_b2);
+    });
+    if (_bx.isEmpty()) return null;
+    // retângulo das quinas da caixa (exagera em perspectiva) ∩ retângulo da esfera envolvente (justo para formas redondas)
+    let l = 1e9, t = 1e9, r = -1e9, b = -1e9;
+    for (let i = 0; i < 8; i++) {
+      _cn.set(i & 1 ? _bx.max.x : _bx.min.x, i & 2 ? _bx.max.y : _bx.min.y, i & 4 ? _bx.max.z : _bx.min.z).project(cam);
+      if (_cn.z > 1) return null;
+      const x = (_cn.x * .5 + .5) * w, y = (-_cn.y * .5 + .5) * h;
+      l = Math.min(l, x); r = Math.max(r, x); t = Math.min(t, y); b = Math.max(b, y);
+    }
+    const centro = _bx.getCenter(new T.Vector3()), raio = _bx.getSize(new T.Vector3()).length() / 2 * .92;
+    const dist = centro.distanceTo(cam.position);
+    if (dist > raio * 1.05) {
+      const ang = Math.asin(Math.min(1, raio / dist)), escala = Math.tan(ang) / Math.tan(T.MathUtils.degToRad(cam.fov / 2)) * h / 2;
+      _cn.copy(centro).project(cam); const sx = (_cn.x * .5 + .5) * w, sy = (-_cn.y * .5 + .5) * h;
+      l = Math.max(l, sx - escala); r = Math.min(r, sx + escala); t = Math.max(t, sy - escala); b = Math.min(b, sy + escala);
+    }
+    return { l: Math.max(0, l), t: Math.max(0, t), r: Math.min(w, r), b: Math.min(h, b) };
+  }
+
+  /* Rótulos FORA da estrutura: cada um vai para a lateral, o topo ou a base do modelo
+     (o lado com espaço mais próximo do ponto que ele identifica) e se liga ao ponto por
+     uma linha da mesma cor. Sem espaço livre fora (ex.: cenários que ocupam a tela toda),
+     o rótulo procura o lugar livre mais próximo do ponto. */
   function atualizarRotulos() {
     const w = palco.clientWidth, h = palco.clientHeight, cand = [];
     est.rotEls.forEach(r => {
@@ -147,34 +193,72 @@
       else if (r.obj) { r.obj.getWorldPosition(_v); if (r.dy) _v.y += r.dy; if (!r.obj.visible) vis = false; }
       else if (r.pos) _v.copy(r.pos);
       if (r.oculto) vis = false;
-      if (vis) { _v.project(cam); if (_v.z > 1 || Math.abs(_v.x) > 1.05 || Math.abs(_v.y) > 1.05) vis = false; }
-      if (r.atualizarTxt) { const t = r.atualizarTxt(); if (t !== r.el.textContent) { r.el.textContent = t; r.tam = null; } }
+      if (vis) { _v.project(cam); if (_v.z > 1 || Math.abs(_v.x) > 1.02 || Math.abs(_v.y) > 1.02) vis = false; }
+      if (r.atualizarTxt) { const tx = r.atualizarTxt(); if (tx !== r.el.textContent) { r.el.textContent = tx; r.tam = null; } }
       r.el.classList.toggle("sel", !!r.parte && r.parte === est.selecionado);
       if (!vis) { r.el.style.display = "none"; return; }
       r.el.style.display = "";
       if (!r.tam || !r.tam[0]) r.tam = [r.el.offsetWidth, r.el.offsetHeight];
-      cand.push({ r, ax: (_v.x * .5 + .5) * w, ay: (-_v.y * .5 + .5) * h, z: _v.z });
+      cand.push({ r, ax: (_v.x * .5 + .5) * w, ay: (-_v.y * .5 + .5) * h, z: _v.z, cw: r.tam[0], ch: r.tam[1] });
     });
-    // prioridade: selecionado primeiro, depois os mais próximos da câmera
-    cand.sort((a, b) => (b.r.parte === est.selecionado) - (a.r.parte === est.selecionado) || a.z - b.z);
-    const ocup = [], pad = 4, linhas = [];
-    const bate = (x, y, cw, ch) => ocup.some(o => x < o[2] + pad && x + cw + pad > o[0] && y < o[3] + pad && y + ch + pad > o[1]);
+    const M = 8, G = 18, ocup = [], linhas = [];
+    const R = est.modo === "modelo" ? contornoTela(w, h) : null;
+    const usaFora = R && (R.r - R.l) < w * .97 || R && (R.b - R.t) < h * .97;
+    const resto = [];
+    const ponto = (c, x, y) => { ocup.push([x, y, x + c.cw, y + c.ch]); c.x = x; c.y = y; };
+    if (usaFora) {
+      const cx = (R.l + R.r) / 2, cy = (R.t + R.b) / 2, rw = Math.max(1, R.r - R.l), rh = Math.max(1, R.b - R.t);
+      const espaco = { l: R.l - G - M, r: w - R.r - G - M, t: R.t - G - M, b: h - R.b - G - M };
+      const grupos = { l: [], r: [], t: [], b: [] };
+      cand.forEach(c => {
+        const dx = (c.ax - cx) / rw, dy = (c.ay - cy) / rh, H = dx < 0 ? "l" : "r", Vt = dy < 0 ? "t" : "b", H2 = H === "l" ? "r" : "l", V2 = Vt === "t" ? "b" : "t";
+        const pref = Math.abs(dx) >= Math.abs(dy) ? [H, Vt, V2, H2] : [Vt, H, H2, V2];
+        const lado = pref.find(s => (s === "l" || s === "r") ? espaco[s] >= c.cw : espaco[s] >= c.ch);
+        if (lado) grupos[lado].push(c); else resto.push(c);
+      });
+      // topo e base primeiro: linhas horizontais; o que não couber vai para uma lateral com espaço
+      ["t", "b"].forEach(s => {
+        const g = grupos[s].sort((a, b) => a.ax - b.ax), fimLinha = [];
+        g.forEach(c => {
+          const passo = c.ch + 6, nLin = Math.max(1, Math.floor((espaco[s] + 6) / passo));
+          for (let k = 0; k < nLin; k++) {
+            const x = Math.max(M, Math.min(w - M - c.cw, c.ax - c.cw / 2), (fimLinha[k] ?? -1e9) + 6);
+            if (x + c.cw <= w - M) { const y = s === "t" ? R.t - G - c.ch - k * passo : R.b + G + k * passo; fimLinha[k] = x + c.cw; ponto(c, x, y); c.lado = s; return; }
+          }
+          const lat = [c.ax < cx ? "l" : "r", c.ax < cx ? "r" : "l"].find(q => espaco[q] >= c.cw);
+          if (lat) grupos[lat].push(c); else resto.push(c);
+        });
+      });
+      // laterais: colunas empilhadas
+      ["l", "r"].forEach(s => {
+        const g = grupos[s].sort((a, b) => a.ay - b.ay); let fim = M - 6;
+        g.forEach(c => { c.y = Math.max(c.ay - c.ch / 2, fim + 6); fim = c.y + c.ch; });
+        const exc = fim - (h - M); if (exc > 0) g.forEach(c => c.y = Math.max(M, c.y - exc));
+        g.forEach(c => { const x = s === "l" ? R.l - G - c.cw : R.r + G; ponto(c, Math.max(M, Math.min(w - M - c.cw, x)), c.y); c.lado = s; });
+      });
+    } else cand.forEach(c => resto.push(c));
+    // sem espaço do lado de fora: lugar livre mais próximo do ponto
+    const bate = (x, y, cw, ch) => ocup.some(o => x < o[2] + 4 && x + cw + 4 > o[0] && y < o[3] + 4 && y + ch + 4 > o[1]);
+    resto.sort((a, b) => (b.r.parte === est.selecionado) - (a.r.parte === est.selecionado) || a.z - b.z).forEach(c => {
+      const { ax, ay, cw, ch } = c, up = ay - 14 - ch, st = ch + 5;
+      const tent = [[ax - cw / 2, up], [ax - cw / 2, up - st], [ax + 12, ay - ch / 2], [ax - cw - 12, ay - ch / 2], [ax - cw / 2, ay + 14],
+        [ax - cw / 2, up - 2 * st], [ax + 12, up], [ax - cw - 12, up], [ax + 12, ay + 14], [ax - cw - 12, ay + 14], [ax - cw / 2, ay + 14 + st]];
+      for (let [x, y] of tent) { x = Math.max(2, Math.min(w - cw - 2, x)); y = Math.max(2, Math.min(h - ch - 2, y)); if (!bate(x, y, cw, ch)) { ponto(c, x, y); c.lado = "livre"; return; } }
+      if (c.r.parte === est.selecionado) { ponto(c, Math.max(2, Math.min(w - cw - 2, ax - cw / 2)), Math.max(2, up)); c.lado = "livre"; return; }
+      c.r.el.style.display = "none";
+    });
     cand.forEach(c => {
-      const [cw, ch] = c.r.tam, gap = 12;
-      const ax = c.ax, ay = c.ay, up = ay - gap - ch, st = ch + 5;
-      const tent = [[ax - cw / 2, up], [ax - cw / 2, up - st], [ax + 10, ay - ch / 2], [ax - cw - 10, ay - ch / 2], [ax - cw / 2, ay + gap],
-        [ax - cw / 2, up - 2 * st], [ax + 10, up], [ax - cw - 10, up], [ax + 10, ay + gap], [ax - cw - 10, ay + gap], [ax - cw / 2, ay + gap + st], [ax - cw / 2, up - 3 * st]];
-      let pos = null;
-      for (let [x, y] of tent) {
-        x = Math.max(2, Math.min(w - cw - 2, x)); y = Math.max(2, Math.min(h - ch - 2, y));
-        if (!bate(x, y, cw, ch)) { pos = [x, y]; break; }
-      }
-      if (!pos && c.r.parte === est.selecionado) pos = [Math.max(2, Math.min(w - cw - 2, c.ax - cw / 2)), Math.max(2, c.ay - gap - ch)];
-      if (!pos) { c.r.el.style.display = "none"; return; }
-      ocup.push([pos[0], pos[1], pos[0] + cw, pos[1] + ch]);
-      c.r.el.style.transform = `translate(${pos[0]}px, ${pos[1]}px)`;
-      const lx = Math.max(pos[0] + 6, Math.min(pos[0] + cw - 6, c.ax)), ly = c.ay < pos[1] ? pos[1] : c.ay > pos[1] + ch ? pos[1] + ch : pos[1] + ch / 2;
-      linhas.push(`<line x1="${c.ax.toFixed(1)}" y1="${c.ay.toFixed(1)}" x2="${lx.toFixed(1)}" y2="${ly.toFixed(1)}" stroke="${c.r.el.style.getPropertyValue("--c")}"/><circle cx="${c.ax.toFixed(1)}" cy="${c.ay.toFixed(1)}" r="3.2" fill="${c.r.el.style.getPropertyValue("--c")}"/>`);
+      if (c.x === undefined) return;
+      c.r.el.style.transform = `translate(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px)`;
+      let lx, ly;
+      if (c.lado === "l") { lx = c.x + c.cw; ly = c.y + c.ch / 2; }
+      else if (c.lado === "r") { lx = c.x; ly = c.y + c.ch / 2; }
+      else if (c.lado === "t") { lx = Math.max(c.x + 8, Math.min(c.x + c.cw - 8, c.ax)); ly = c.y + c.ch; }
+      else if (c.lado === "b") { lx = Math.max(c.x + 8, Math.min(c.x + c.cw - 8, c.ax)); ly = c.y; }
+      else { lx = Math.max(c.x + 6, Math.min(c.x + c.cw - 6, c.ax)); ly = c.ay < c.y ? c.y : c.ay > c.y + c.ch ? c.y + c.ch : c.y + c.ch / 2; }
+      // linha com um cotovelo, como num livro didático
+      const mx = (c.lado === "l" || c.lado === "r") ? (c.lado === "l" ? lx + 8 : lx - 8) : lx, my = (c.lado === "t" || c.lado === "b") ? (c.lado === "t" ? ly + 6 : ly - 6) : ly;
+      linhas.push(`<polyline points="${c.ax.toFixed(1)},${c.ay.toFixed(1)} ${mx.toFixed(1)},${my.toFixed(1)} ${lx.toFixed(1)},${ly.toFixed(1)}" stroke="${c.r.cor}"/><circle cx="${c.ax.toFixed(1)}" cy="${c.ay.toFixed(1)}" r="3.6" fill="${c.r.cor}" stroke="#08111f" stroke-width="1"/>`);
     });
     if (est.svgRot) est.svgRot.innerHTML = linhas.join("");
   }

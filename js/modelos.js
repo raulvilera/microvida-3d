@@ -155,7 +155,7 @@
       m.parte("fibras_cauda", fib, V(4.4, .4, 2.5));
       // superfície da bactéria (não clicável)
       const sup = malha(new T.CylinderGeometry(30, 30, 1, 64, 1, false, 0, Math.PI * 2), mat(0x1e3a8a, { op: .35 }), V(0, -2.1, 0));
-      m.raiz.add(sup);
+      sup.userData.semCaixa = true; m.raiz.add(sup);
       return Object.assign(m, { atualizar(dt, t) { fib.rotation.y = Math.sin(t * .6) * .05; } });
     }
   };
@@ -208,18 +208,18 @@
       const m = novoModelo(), R = rng(21);
       const esf = (r) => new T.SphereGeometry(r, 20, 16);
       // lâmina de vidro
-      m.raiz.add(malha(new T.BoxGeometry(32, .4, 18), mat(0xbfdbfe, { op: .22, rough: .1 }), V(0, -1.4, 0)));
+      { const lam = malha(new T.BoxGeometry(32, .4, 18), mat(0xbfdbfe, { op: .22, rough: .1 }), V(0, -1.4, 0)); lam.userData.semCaixa = true; m.raiz.add(lam); }
       const add = (id, g, pos, anc) => { g.position.copy(pos); m.parte(id, g, anc || pos.clone().add(V(0, 2, 0))); };
       let g = new T.Group(); g.add(malha(esf(1), mat(0x60a5fa))); add("cocos", g, V(-12, 0, -4));
-      g = new T.Group(); [-0.9, .9].forEach(x => g.add(malha(esf(.95), mat(0x38bdf8), V(x, 0, 0), null, [1, 1, 1]))); add("diplococos", g, V(-7, 0, -4));
+      g = new T.Group(); [-0.9, .9].forEach(x => g.add(malha(esf(.95), mat(0x22d3ee), V(x, 0, 0), null, [1, 1, 1]))); add("diplococos", g, V(-7, 0, -4));
       g = new T.Group(); for (let i = 0; i < 8; i++) g.add(malha(esf(.75), mat(0x818cf8), V(i * 1.45 - 5, 0, Math.sin(i * .7) * 1.2))); add("estreptococos", g, V(1, 0, -4.5), V(1, 2, -4));
-      g = new T.Group(); for (let i = 0; i < 18; i++) { const p = V(R() - .5, R() - .5, R() - .5).normalize().multiplyScalar(R() * 1.6); g.add(malha(esf(.75), mat(0xa78bfa), p)); } add("estafilococos", g, V(10, .4, -4));
+      g = new T.Group(); for (let i = 0; i < 18; i++) { const p = V(R() - .5, R() - .5, R() - .5).normalize().multiplyScalar(R() * 1.6); g.add(malha(esf(.75), mat(0xf59e0b), p)); } add("estafilococos", g, V(10, .4, -4));
       g = new T.Group(); [[0, 0, 0, .3], [2.6, 0, 1.4, -.5], [-.6, 0, 2.6, 1.2]].forEach(([x, y, z, r]) => { const c = new T.CapsuleGeometry(.6, 2.2, 6, 14); c.rotateZ(Math.PI / 2); g.add(malha(c, mat(0xc084fc), V(x, y, z), [0, r, 0])); });
       add("bacilos", g, V(-10, 0, 3.5));
       g = new T.Group(); const vib = []; for (let i = 0; i <= 10; i++) { const a = -0.9 + i / 10 * 1.8; vib.push(V(Math.sin(a) * 2, 0, Math.cos(a) * 2 - 2)); }
       g.add(tubo(vib, .55, mat(0xf472b6))); g.add(malha(esf(.55), mat(0xf472b6), vib[0])); g.add(malha(esf(.55), mat(0xf472b6), vib[vib.length - 1]));
       { const fv = hélice(.15, .5, 6, .05, mat(0xfbcfe8)); fv.rotation.z = Math.PI / 2; fv.position.set(-2, 0, -.76); g.add(fv); } add("vibriao", g, V(-1.5, 0, 4.5));
-      g = new T.Group(); const sp = hélice(.8, 1.1, 6, .32, mat(0x2dd4bf)); sp.rotation.z = -Math.PI / 2; sp.position.x = -3.3; g.add(sp); add("espirilo", g, V(7, 0, 4.5));
+      g = new T.Group(); const sp = hélice(.8, 1.1, 6, .32, mat(0x34d399)); sp.rotation.z = -Math.PI / 2; sp.position.x = -3.3; g.add(sp); add("espirilo", g, V(7, 0, 4.5));
       return m;
     }
   };
