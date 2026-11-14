@@ -516,6 +516,11 @@
         <li>Clique em uma estrutura para abrir a ficha e use <b>Ouvir</b> para escutar a explicação.</li>
         <li>Na lateral, mostre ou esconda partes e ajuste a transparência. Use o <b>Corte</b> para ver o interior.</li>
         <li>Em <b>Simular</b>, controle replicação viral, bactérias e antibióticos, resposta imune e vacina, propagação de doenças, saneamento, fabricação de vacinas e indicadores de saúde.</li></ul></div>
+      <div class="cartao" id="cartaoInstalar"><h3>📲 Instalar como aplicativo</h3><ul class="lista">
+        <li><b>Android (Chrome):</b> toque em <b>Instalar app</b> no topo ou, no menu ⋮, em <b>Instalar aplicativo</b> / <b>Adicionar à tela inicial</b>.</li>
+        <li><b>iPhone e iPad (Safari):</b> toque em <b>Compartilhar</b> (quadrado com seta) e depois em <b>Adicionar à Tela de Início</b>.</li>
+        <li><b>Computador (Chrome ou Edge):</b> clique em <b>Instalar app</b> no topo ou no ícone de instalar na barra de endereço.</li></ul>
+        <p class="muted mini-txt">Depois de aberto uma vez com internet, o Microvida 3D funciona offline — ótimo para a sala de aula.</p></div>
       <div class="cartao"><h3>📖 Glossário</h3><dl class="glossario">${D.glossario.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join("")}</dl></div>
       <div class="cartao"><h3>🔎 Referências</h3><ul class="refs">${D.referencias.map(([t, d, u]) => `<li><b><a href="${u}" target="_blank" rel="noopener">${t}</a></b><br><small class="muted">${d}</small></li>`).join("")}</ul>
       <p class="muted mini-txt">Os modelos são didáticos e esquemáticos, construídos por código. Formas e cores são representações; apenas o modelo “Escala microscópica” mantém as proporções reais. Dados de cidades nas simulações são fictícios quando indicado.</p></div>`;
@@ -585,6 +590,30 @@
     atualizarRotulos();
   }
 
+  /* ------------------------------ APLICATIVO (PWA) ------------------------------ */
+  let pedidoInstalacao = null;
+  const instalado = () => window.matchMedia("(display-mode: standalone)").matches || navigator.standalone === true;
+  const ehIOS = /iphone|ipad|ipod/i.test(navigator.userAgent) || (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+  window.addEventListener("beforeinstallprompt", e => { e.preventDefault(); pedidoInstalacao = e; if (!instalado()) $("#btnInstalar").hidden = false; });
+  window.addEventListener("appinstalled", () => { $("#btnInstalar").hidden = true; pedidoInstalacao = null; avisar("Microvida 3D instalado! Procure o ícone na tela inicial."); });
+  if (ehIOS && !instalado()) $("#btnInstalar").hidden = false;
+  $("#btnInstalar").onclick = async () => {
+    if (pedidoInstalacao) { pedidoInstalacao.prompt(); const r = await pedidoInstalacao.userChoice; if (r.outcome === "accepted") $("#btnInstalar").hidden = true; pedidoInstalacao = null; return; }
+    trocarAba("saiba"); setTimeout(() => { const c = $("#cartaoInstalar"); if (c) { c.scrollIntoView({ behavior: "smooth" }); c.classList.add("piscar"); } }, 50);
+  };
+  if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js").then(reg => {
+        const oferecer = w => { if (!navigator.serviceWorker.controller) return; $("#atualizacao").hidden = false; $("#btnAtualizar").onclick = () => w.postMessage("atualizar"); };
+        if (reg.waiting) oferecer(reg.waiting);
+        reg.addEventListener("updatefound", () => { const w = reg.installing; w && w.addEventListener("statechange", () => { if (w.state === "installed") oferecer(w); }); });
+        setInterval(() => reg.update(), 30 * 60 * 1000);
+      }).catch(() => { });
+      let recarregou = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => { if (recarregou) return; recarregou = true; location.reload(); });
+    });
+  }
+
   /* ------------------------------ INÍCIO ------------------------------ */
   montarSimular(); montarHabilidades(); montarQuiz(); montarDesafio(); montarSaiba();
   redimensionar();
@@ -593,6 +622,7 @@
   carga.style.setProperty("--p", 1);
   laco();
   setTimeout(() => carga.classList.add("some"), 400);
+  { const aba = new URLSearchParams(location.search).get("aba"); if (["simular", "quiz", "desafio", "habilidades", "saiba"].includes(aba)) trocarAba(aba); }
   setTimeout(() => $(".ajuda-gestos").classList.add("some"), 9000);
   window.APP = { est, carregarModelo, abrirSim, selecionar, trocarAba, cam, ctl, cena };
 })();

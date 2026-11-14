@@ -10,6 +10,14 @@ Simulador 3D interativo de Ciências para o **7º ano · 4º bimestre** (Curríc
 - **Desafio:** encontre a estrutura no modelo 3D.
 - **Saiba mais:** como usar, glossário e referências.
 
+## Aplicativo (PWA)
+O Microvida 3D pode ser **instalado** como aplicativo e **funciona offline** depois do primeiro acesso.
+- **Android (Chrome):** botão **Instalar app** no topo, ou menu ⋮ → *Instalar aplicativo*.
+- **iPhone/iPad (Safari):** *Compartilhar* → *Adicionar à Tela de Início*.
+- **Computador (Chrome/Edge):** botão **Instalar app** ou ícone de instalar na barra de endereço.
+
+Quando houver uma versão nova, aparece o aviso *Nova versão disponível — Atualizar*. Ao alterar arquivos, aumente `VERSAO` em `sw.js`.
+
 ## Publicar no GitHub Pages
 1. Crie um repositório (ex.: `microvida-3d`) e envie **todo o conteúdo desta pasta** (o `index.html` deve ficar na raiz).
 2. Em **Settings → Pages**, escolha *Deploy from a branch*, branch `main`, pasta `/ (root)`.

@@ -77,6 +77,14 @@ h4 { margin-top: 1.1em; font-size: .8rem; font-weight: 700; color: var(--muted);
 .icone { display: inline-grid; place-items: center; border: 1px solid transparent; background: transparent; width: 38px; height: 38px; border-radius: 50%; cursor: pointer; font-size: 18px; color: var(--muted); flex: none; }
 .icone:hover { background: var(--card2); color: var(--txt); }
 
+/* ---------- PWA ---------- */
+.btn-instalar { display: inline-flex; align-items: center; gap: 6px; border: 1px solid var(--acento); background: color-mix(in srgb, var(--acento) 16%, transparent); color: var(--txt); border-radius: 99px; padding: 6px 12px; font-size: .82rem; font-weight: 700; cursor: pointer; white-space: nowrap; flex: none; }
+.btn-instalar:hover { background: var(--acento); color: var(--sobre-acento); }
+.btn-instalar[hidden] { display: none; }
+#atualizacao { position: absolute; left: 50%; bottom: 46px; transform: translateX(-50%); z-index: 6; background: var(--card); border: 1px solid var(--acento); border-radius: 99px; padding: 6px 8px 6px 16px; box-shadow: var(--sombra); font-size: .86rem; display: flex; gap: 10px; align-items: center; white-space: nowrap; }
+#atualizacao[hidden] { display: none; }
+@media (display-mode: standalone) { .btn-instalar { display: none !important; } }
+
 /* ---------- layout ---------- */
 .layout { display: grid; grid-template-columns: 260px 1fr 390px; height: calc(100% - var(--topo)); }
 .lateral { background: var(--bg2); border-right: 1px solid var(--borda-suave); overflow-y: auto; padding: 12px; }
@@ -207,6 +215,8 @@ dl.glossario dd { margin: 2px 0 0; color: var(--muted); font-size: .9rem; }
 @media (max-width: 860px) {
   .so-movel { display: inline-grid !important; }
   .topo .abas, .busca-wrap, .marca small { display: none; }
+  .btn-instalar { margin-left: auto; padding: 5px 10px; font-size: .74rem; }
+  .btn-instalar span { display: none; }
   .topo { gap: 8px; }
   .layout { grid-template-columns: 1fr; grid-template-rows: 1fr auto; height: calc(100% - var(--topo) - 52px); }
   .lateral { position: fixed; z-index: 40; top: var(--topo); bottom: 52px; left: 0; width: 82%; max-width: 320px; transform: translateX(-102%); transition: transform .25s; box-shadow: var(--sombra); }

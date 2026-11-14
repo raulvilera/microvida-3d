@@ -8,6 +8,9 @@
   <meta name="theme-color" content="#0a1424">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" type="image/svg+xml" href="icone.svg">
+  <link rel="icon" type="image/png" sizes="32x32" href="icones/favicon-32.png">
+  <link rel="apple-touch-icon" href="icones/apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-title" content="Microvida 3D">
@@ -37,6 +40,7 @@
       <symbol id="i-reset" viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 2.6-5.9"/><path d="M4 4v4.5h4.5"/></symbol>
       <symbol id="i-fechar" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></symbol>
       <symbol id="i-tema" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 0 0 16z" fill="currentColor"/></symbol>
+      <symbol id="i-baixar" viewBox="0 0 24 24"><path d="M12 4v11M7.5 10.5L12 15l4.5-4.5M5 19h14"/></symbol>
       <symbol id="i-olho" viewBox="0 0 24 24"><path d="M2 12s3.5-6.5 10-6.5S22 12 22 12s-3.5 6.5-10 6.5S2 12 2 12z"/><circle cx="12" cy="12" r="2.8"/></symbol>
     </defs>
   </svg>
@@ -63,6 +67,7 @@
       <input id="busca" type="search" placeholder="Buscar estrutura ou célula" autocomplete="off" aria-label="Buscar estrutura">
       <div id="sugestoes" hidden></div>
     </div>
+    <button class="btn-instalar" id="btnInstalar" hidden title="Instalar o Microvida 3D como aplicativo"><svg class="ic"><use href="#i-baixar"/></svg><span>Instalar app</span></button>
     <button class="icone" id="btnTema" title="Alternar tema claro/escuro" aria-label="Alternar tema"><svg class="ic"><use href="#i-tema"/></svg></button>
   </header>
 
@@ -104,6 +109,7 @@
       </div>
       <div class="ajuda-gestos">Arraste para girar · roda ou pinça para aproximar · clique em uma estrutura para abrir a ficha</div>
       <div id="aviso" hidden></div>
+      <div id="atualizacao" hidden>Nova versão disponível. <button class="btn prim" id="btnAtualizar">Atualizar</button></div>
     </section>
 
     <aside class="painel" id="painel">
