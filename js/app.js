@@ -552,6 +552,7 @@
 
   /* ------------------------------ SAIBA MAIS ------------------------------ */
   function montarSaiba() {
+    setTimeout(() => { const b = $("#bForcar"); if (b) b.onclick = forcarAtualizacao; }, 0);
     $("#aba-saiba").innerHTML = `
       <div class="cartao"><h3>🧭 Como usar</h3><ul class="lista">
         <li><b>Girar:</b> arraste · <b>Mover:</b> botão direito ou dois dedos · <b>Zoom:</b> roda do mouse ou pinça.</li>
@@ -562,7 +563,9 @@
         <li><b>Android (Chrome):</b> toque em <b>Instalar app</b> no topo ou, no menu ⋮, em <b>Instalar aplicativo</b> / <b>Adicionar à tela inicial</b>.</li>
         <li><b>iPhone e iPad (Safari):</b> toque em <b>Compartilhar</b> (quadrado com seta) e depois em <b>Adicionar à Tela de Início</b>.</li>
         <li><b>Computador (Chrome ou Edge):</b> clique em <b>Instalar app</b> no topo ou no ícone de instalar na barra de endereço.</li></ul>
-        <p class="muted mini-txt">Depois de aberto uma vez com internet, o Microvida 3D funciona offline — ótimo para a sala de aula.</p></div>
+        <p class="muted mini-txt">Depois de aberto uma vez com internet, o Microvida 3D funciona offline — ótimo para a sala de aula. Ele se atualiza sozinho quando há internet.</p>
+        <p class="mini-txt">Versão instalada: <b>${VERSAO_APP}</b></p>
+        <button class="btn" id="bForcar">🔄 Forçar atualização</button></div>
       <div class="cartao"><h3>📖 Glossário</h3><dl class="glossario">${D.glossario.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join("")}</dl></div>
       <div class="cartao"><h3>🔎 Referências</h3><ul class="refs">${D.referencias.map(([t, d, u]) => `<li><b><a href="${u}" target="_blank" rel="noopener">${t}</a></b><br><small class="muted">${d}</small></li>`).join("")}</ul>
       <p class="muted mini-txt">O modelo “Corpo e defesas” usa malhas anatômicas reais (BodyParts3D e HuBMAP, CC BY 4.0); linfonodos, vasos, medula e placas de Peyer foram posicionados sobre trajetos medidos nessas malhas. Os demais modelos são didáticos, construídos por código; apenas a “Escala microscópica” mantém as proporções reais. Dados de cidades nas simulações são fictícios quando indicado.</p></div>`;
@@ -643,17 +646,31 @@
     if (pedidoInstalacao) { pedidoInstalacao.prompt(); const r = await pedidoInstalacao.userChoice; if (r.outcome === "accepted") $("#btnInstalar").hidden = true; pedidoInstalacao = null; return; }
     trocarAba("saiba"); setTimeout(() => { const c = $("#cartaoInstalar"); if (c) { c.scrollIntoView({ behavior: "smooth" }); c.classList.add("piscar"); } }, 50);
   };
+  const VERSAO_APP = "5 · 14/11/2026";
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => {
-      navigator.serviceWorker.register("sw.js").then(reg => {
-        const oferecer = w => { if (!navigator.serviceWorker.controller) return; $("#atualizacao").hidden = false; $("#btnAtualizar").onclick = () => w.postMessage("atualizar"); };
-        if (reg.waiting) oferecer(reg.waiting);
-        reg.addEventListener("updatefound", () => { const w = reg.installing; w && w.addEventListener("statechange", () => { if (w.state === "installed") oferecer(w); }); });
-        setInterval(() => reg.update(), 30 * 60 * 1000);
+      navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
+        reg.update();
+        // ao voltar para o app (ex.: reabrir o aplicativo instalado), procura versão nova
+        document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible") reg.update(); });
+        setInterval(() => reg.update(), 15 * 60 * 1000);
       }).catch(() => { });
       let recarregou = false;
-      navigator.serviceWorker.addEventListener("controllerchange", () => { if (recarregou) return; recarregou = true; location.reload(); });
+      navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (recarregou) return; recarregou = true;
+        try { sessionStorage.setItem("mv3d_atualizado", "1"); } catch (e) { }
+        location.reload();
+      });
     });
+    try { if (sessionStorage.getItem("mv3d_atualizado")) { sessionStorage.removeItem("mv3d_atualizado"); setTimeout(() => avisar("✅ Microvida 3D atualizado para a versão mais recente."), 1200); } } catch (e) { }
+  }
+  async function forcarAtualizacao() {
+    avisar("Baixando a versão mais recente…");
+    try {
+      if ("serviceWorker" in navigator) { const regs = await navigator.serviceWorker.getRegistrations(); await Promise.all(regs.map(r => r.unregister())); }
+      if (window.caches) { const ks = await caches.keys(); await Promise.all(ks.map(k => caches.delete(k))); }
+    } catch (e) { }
+    location.replace(location.pathname + "?v=" + Date.now());
   }
 
   /* ------------------------------ INÍCIO ------------------------------ */

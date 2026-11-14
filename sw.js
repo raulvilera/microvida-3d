@@ -1,7 +1,7 @@
 /* Microvida 3D — service worker
    Funciona sem internet depois do primeiro acesso. Arquivos do app: tenta a rede
    primeiro (para receber atualizações) e usa a cópia guardada quando estiver offline. */
-const VERSAO = "microvida-v4";
+const VERSAO = "microvida-v5";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.webmanifest", "./icone.svg",
   "./css/estilo.css",
@@ -11,8 +11,9 @@ const ARQUIVOS = [
   "./icones/apple-touch-icon.png", "./icones/favicon-32.png"
 ];
 
+// cache: "reload" ignora o cache HTTP do navegador: guarda sempre a versão publicada agora
 self.addEventListener("install", e => {
-  e.waitUntil(caches.open(VERSAO).then(c => c.addAll(ARQUIVOS)));
+  e.waitUntil(caches.open(VERSAO).then(c => c.addAll(ARQUIVOS.map(u => new Request(u, { cache: "reload" })))).then(() => self.skipWaiting()));
 });
 self.addEventListener("message", e => { if (e.data === "atualizar") self.skipWaiting(); });
 self.addEventListener("activate", e => {
@@ -35,7 +36,7 @@ self.addEventListener("fetch", e => {
   e.respondWith((async () => {
     const c = await caches.open(VERSAO);
     try {
-      const r = await fetch(req);
+      const r = await fetch(req, { cache: "no-cache" }); // confere com o servidor (ETag), nunca usa cópia velha
       if (r.ok) c.put(req, r.clone());
       return r;
     } catch (err) {
