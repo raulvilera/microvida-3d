@@ -291,53 +291,128 @@
     }
   };
 
-  /* =================== CORPO E ÓRGÃOS LINFOIDES =================== */
+  /* =================== CORPO E DEFESAS (malhas anatômicas reais) ===================
+     Pele, esqueleto, baço, timo, tonsilas e órgãos de barreira: malhas reais do BodyParts3D
+     e do HuBMAP (CC BY 4.0), as mesmas do Simulador Corpo Humano 3D. Linfonodos, vasos,
+     ductos, medula óssea e placas de Peyer são posicionados sobre trajetos medidos nessas malhas. */
+  const CI = { geos: null, prom: null };
+  async function prepararCorpo() {
+    if (CI.geos) return; if (CI.prom) return CI.prom;
+    CI.prom = (async () => {
+      if (!window.CORPO_IMUNE) await new Promise((ok, erro) => { const sc = document.createElement("script"); sc.src = "modelos/corpo_imune.js"; sc.onload = ok; sc.onerror = erro; document.head.appendChild(sc); });
+      const P = window.CORPO_IMUNE; await MeshoptDecoder.ready;
+      const bin = atob(P.dados), u = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+      const d = new Uint8Array(await new Response(new Blob([u]).stream().pipeThrough(new DecompressionStream("gzip"))).arrayBuffer());
+      CI.geos = P.cab.map(c => {
+        const q = new Uint8Array(c.nv * 8); MeshoptDecoder.decodeVertexBuffer(q, c.nv, 8, d.subarray(c.vo, c.vo + c.vl));
+        const ib = new Uint8Array(c.ni * 4); MeshoptDecoder.decodeIndexBuffer(ib, c.ni, 4, d.subarray(c.io, c.io + c.il));
+        const q16 = new Uint16Array(q.buffer), pos = new Float32Array(c.nv * 3);
+        for (let v = 0; v < c.nv; v++) for (let k = 0; k < 3; k++) pos[v * 3 + k] = c.mn[k] + q16[v * 4 + k] / 65535 * c.esc[k];
+        const g = new T.BufferGeometry(); g.setAttribute("position", new T.BufferAttribute(pos, 3)); g.setIndex(new T.BufferAttribute(new Uint32Array(ib.buffer), 1));
+        g.computeVertexNormals(); g.computeBoundingSphere(); g.computeBoundingBox();
+        return { c, g };
+      });
+      P.dados = null;
+    })();
+    return CI.prom;
+  }
   M.corpo = {
-    vistas: [["Frente", [0, 9, 32], [0, 9, 0]], ["Lado", [30, 10, 6], [0, 9, 0]], ["Tórax", [0, 13, 13], [0, 12.5, 0]], ["Pescoço", [2, 15.5, 7], [0, 15.4, 0]], ["Abdome", [0, 9.5, 12], [0, 9.6, 0]]],
+    preparar: prepararCorpo, pronto: () => !!CI.geos, afastarCelular: 1.45,
+    vistas: [["Frente", [0, 10.5, 30], [0, 10.5, 0]], ["Lado", [28, 11, 4], [0, 10.5, 0]], ["Cabeça e pescoço", [1.6, 15.6, 5.2], [0, 15.3, .3]], ["Tórax", [0, 13, 8.5], [0, 12.9, .2]], ["Abdome", [0, 10.3, 8.5], [0, 10.2, .3]], ["Pernas", [0, 6, 16], [0, 6, 0]]],
+    camadas: [
+      { nome: "Órgãos linfoides", partes: ["medula_ossea", "timo", "tonsilas", "baco", "apendice", "placas_peyer", "linfonodos_cervicais", "linfonodos_axilares", "linfonodos_mediastinais", "linfonodos_abdominais", "linfonodos_inguinais", "linfonodos_popliteos", "vasos_linfaticos", "ducto_toracico"], extra: { pele: .12, esqueleto: .22 } },
+      { nome: "Primários", partes: ["medula_ossea", "timo"], extra: { pele: .1, esqueleto: .35 } },
+      { nome: "Secundários", partes: ["tonsilas", "baco", "apendice", "placas_peyer", "linfonodos_cervicais", "linfonodos_axilares", "linfonodos_mediastinais", "linfonodos_abdominais", "linfonodos_inguinais", "linfonodos_popliteos", "vasos_linfaticos", "ducto_toracico"], extra: { pele: .12, esqueleto: .15 } },
+      { nome: "Barreiras (1ª linha)", partes: ["pele", "aparelho_lacrimal", "mucosa_nasal", "boca_saliva", "traqueia_bronquios", "estomago_acido", "intestino_microbiota"], extra: { esqueleto: .12 }, opac: { pele: .35 } },
+      { nome: "Tudo", partes: "*", extra: {}, opac: { pele: .14, esqueleto: .25 } }
+    ],
+    camadaInicial: 0,
     construir() {
-      const m = novoModelo();
-      const pele = new T.Group(), mp = mat(0xfcd9b8, { op: .22, side: T.DoubleSide, rough: .5, dw: false });
-      const caps = (r, l, p, rz, sx) => { const c = malha(new T.CapsuleGeometry(r, l, 10, 24), mp, p, [0, 0, rz || 0]); if (sx) c.scale.set(sx[0], sx[1], sx[2]); pele.add(c); };
-      pele.add(malha(new T.SphereGeometry(1.35, 32, 24), mp, V(0, 16.6, 0), null, [.9, 1.1, 1]));
-      caps(.55, .8, V(0, 15, 0));
-      caps(2.1, 3.6, V(0, 11.6, 0), 0, [1.15, 1, .62]);
-      caps(1.8, 1.2, V(0, 8.2, 0), 0, [1.15, 1, .62]);
-      [-1, 1].forEach(s => { caps(.5, 3.2, V(s * 3.1, 11.3, 0), s * .12); caps(.42, 3, V(s * 3.65, 7.5, .3), s * .05);
-        caps(.85, 3.8, V(s * 1.1, 4.4, 0)); caps(.62, 3.6, V(s * 1.15, 1.1, 0)); });
-      m.parte("pele", pele, V(-2.6, 13.8, .9));
-      // medula óssea (ossos longos)
-      const med = new T.Group(), mm = mat(0xdc2626, { emis: 0x7f1d1d, ei: .5 });
-      [-1, 1].forEach(s => { med.add(malha(new T.CylinderGeometry(.22, .22, 3.6, 10), mm, V(s * 1.1, 4.4, 0)));
-        med.add(malha(new T.CylinderGeometry(.18, .18, 3.2, 10), mm, V(s * 1.15, 1.1, 0)));
-        med.add(malha(new T.CylinderGeometry(.18, .18, 3, 10), mm, V(s * 3.1, 11.3, 0), [0, 0, s * .12])); });
-      med.add(malha(new T.TorusGeometry(1.3, .28, 8, 24, Math.PI), mm, V(0, 7.2, 0), [0, 0, Math.PI]));
-      med.add(malha(new T.BoxGeometry(.4, 2.2, .2), mm, V(0, 11.3, .8)));
-      m.parte("medula_ossea", med, V(1.6, 4.6, 0));
-      const timo = new T.Group(), mt = mat(0xf472b6);
-      [-.35, .35].forEach(x => timo.add(malha(new T.SphereGeometry(.45, 16, 12), mt, V(x, 13.2, .55), null, [.8, 1.4, .5])));
-      m.parte("timo", timo, V(0, 13.9, .7));
-      m.parte("baco", malha(new T.SphereGeometry(.7, 20, 14), mat(0xa855f7), V(1.4, 10.1, -.2), null, [.7, 1.2, .55]), V(1.6, 10.9, -.2));
-      const ton = new T.Group(); [-.32, .32].forEach(x => ton.add(malha(new T.SphereGeometry(.18, 12, 8), mat(0xfb7185), V(x, 15.75, .4))));
-      m.parte("tonsilas", ton, V(0, 16, .45));
-      // linfonodos e vasos
-      const posL = [];
-      [-1, 1].forEach(s => {
-        [[.6, 15.2, .3], [.75, 14.7, .2], [.5, 14.4, .4]].forEach(p => posL.push(V(s * p[0], p[1], p[2])));
-        [[2.3, 13.3, .2], [2.5, 12.9, -.1], [2.2, 12.6, .3]].forEach(p => posL.push(V(s * p[0], p[1], p[2])));
-        [[1.2, 7.3, .6], [1.5, 7.0, .5], [1.0, 6.8, .7]].forEach(p => posL.push(V(s * p[0], p[1], p[2])));
-        [[3.4, 9.6, .2]].forEach(p => posL.push(V(s * p[0], p[1], p[2])));
+      const m = novoModelo(), X = window.CORPO_IMUNE.extras, VA = a => V(a[0], a[1], a[2]), R = rng(77);
+      const fis = (cor, o) => { const x = mat(cor, o); x.roughness = o && o.rough != null ? o.rough : .5; return x; };
+      const MAT = {
+        pele: () => fis(0xd6a184, { op: .14, side: T.DoubleSide, dw: false, rough: .6 }),
+        osso: () => fis(0xe6dcc3, { op: .25, rough: .7 }), cartilagem: () => fis(0xbfd6dc, { op: .25 }),
+        baco: () => fis(0x8b2a52, { rough: .35 }), timo: () => fis(0xe8a29a), tonsila: () => fis(0xe26b78),
+        lacrimal: () => fis(0x7dd3fc, { rough: .3 }), "conchas": () => fis(0xf0a3a3), traqueia: () => fis(0x9fd4e3, { rough: .35 }),
+        bronquios: () => fis(0x9fd4e3, { rough: .35 }), boca: () => fis(0xe7848b, { op: .8 }), estomago: () => fis(0xf0a35e, { op: .85, rough: .4 }),
+        intestino_delgado: () => fis(0xe4a48d, { op: .55, rough: .45 }), intestino_grosso: () => fis(0xd28b6e, { rough: .45 })
+      };
+      const PARTE = { pele: "pele", baco: "baco", timo: "timo", tonsilas: "tonsilas", aparelho_lacrimal: "aparelho_lacrimal", conchas_nasais: "mucosa_nasal", cartilagens_nasais: "mucosa_nasal",
+        traqueia: "traqueia_bronquios", bronquios: "traqueia_bronquios", boca: "boca_saliva", estomago: "estomago_acido", intestino_delgado: "intestino_microbiota", apendice: "apendice" };
+      const grupos = {}, matDe = {};
+      CI.geos.forEach(({ c, g }) => {
+        const parte = c.sist === "esqueletico" ? "esqueleto" : PARTE[c.id]; if (!parte) return;
+        const chave = c.mat === "conchas_nasais" || c.id === "conchas_nasais" || c.id === "cartilagens_nasais" ? "conchas" : c.id === "traqueia" ? "traqueia" : c.mat === "osso" || c.mat === "cartilagem" ? c.mat : c.mat;
+        const mk = MAT[chave] || MAT[c.id] || (() => fis(0xcccccc));
+        const mt = matDe[parte + chave] = matDe[parte + chave] || mk();
+        const me = new T.Mesh(g, mt); if (c.id === "pele") me.userData.sexo = c.grupo;
+        (grupos[parte] = grupos[parte] || new T.Group()).add(me);
       });
-      [[0, 9.2, .3], [.4, 8.8, .2], [-.4, 8.9, .1]].forEach(p => posL.push(V(...p)));
-      const lin = new T.Group(), ml = mat(0x4ade80, { emis: 0x14532d, ei: .5 });
-      posL.forEach(p => lin.add(malha(new T.SphereGeometry(.17, 12, 8), ml, p, null, [1, 1.4, 1])));
-      m.parte("linfonodos", lin, V(-2.4, 13.2, .3));
-      const vas = new T.Group(), mv = mat(0x86efac, { op: .8 });
+      const cx = k => { const b = X.caixas[k]; return V((b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2, (b[0][2] + b[1][2]) / 2); };
+      const frente = k => { const b = X.caixas[k]; return V((b[0][0] + b[1][0]) / 2, (b[0][1] + b[1][1]) / 2, b[1][2]); };
+      m.parte("pele", grupos.pele, V(-1.05, 13.4, .55));
+      m.parte("esqueleto", grupos.esqueleto, V(.95, 5.6, .2));
+      m.parte("baco", grupos.baco, cx("baco"));
+      m.parte("timo", grupos.timo, frente("timo"));
+      m.parte("tonsilas", grupos.tonsilas, frente("tonsilas"));
+      m.parte("aparelho_lacrimal", grupos.aparelho_lacrimal, V(.4, 15.9, .62));
+      m.parte("mucosa_nasal", grupos.mucosa_nasal, frente("conchas_nasais"));
+      m.parte("traqueia_bronquios", grupos.traqueia_bronquios, V(0, 14.1, .05));
+      m.parte("boca_saliva", grupos.boca_saliva, frente("boca"));
+      m.parte("estomago_acido", grupos.estomago_acido, V(.55, 11.75, .8));
+      m.parte("intestino_microbiota", grupos.intestino_microbiota, V(-.3, 10, .75));
+      m.parte("apendice", grupos.apendice, cx("apendice"));
+      // ---------- estruturas posicionadas sobre trajetos reais ----------
+      const tuboP = (pts, r, mt) => tubo(pts.map(p => p.isVector3 ? p : VA(p)), r, mt);
+      const mMed = mat(0xb3262e, { emis: 0x5a0c10, ei: .45, rough: .6 });
+      const med = new T.Group();
+      med.add(tuboP([[0, 12.6, 1.0], [0, 12.92, .93], [0, 13.31, .82], [0, 13.6, .69], [0, 13.86, .5]], .05, mMed)); // esterno
       [-1, 1].forEach(s => {
-        vas.add(tubo([V(s * 1.2, -.5, .3), V(s * 1.1, 2.5, .4), V(s * 1.15, 5.2, .5), V(s * 1.2, 7, .6), V(s * .4, 9, .4), V(0, 11.5, .2), V(s * .1, 13.2, .1)], .05, mv));
-        vas.add(tubo([V(s * 3.8, 6.2, .3), V(s * 3.5, 9.6, .2), V(s * 2.4, 12.8, .1), V(s * .6, 13.5, .1)], .05, mv));
-        vas.add(tubo([V(s * .6, 14.5, .4), V(s * .4, 13.8, .3)], .05, mv));
+        med.add(tuboP([[s * 1.03, 7.2, -.11], [s * 1.06, 7.6, -.14], [s * 1.08, 8.05, -.25], [s * 1.12, 8.45, -.3], [s * .98, 8.82, -.25], [s * .82, 8.95, -.22]], .07, mMed)); // fêmur
+        med.add(tuboP([[s * 1.96, 12.75, -.3], [s * 1.8, 13.28, -.245], [s * 1.71, 13.65, -.24], [s * 1.6, 13.9, -.2]], .055, mMed)); // úmero
       });
-      m.parte("vasos_linfaticos", vas, V(-1.15, 3.2, .4));
+      if (X.espinha.length > 3) med.add(tuboP(X.espinha, .085, mMed)); // corpos vertebrais
+      X.iliaco.forEach(p => { const e = malha(new T.SphereGeometry(1, 20, 14), mMed, VA(p)); e.scale.set(.26, .24, .08); e.rotation.y = p[0] > 0 ? -.5 : .5; med.add(e); }); // ilíacos
+      m.parte("medula_ossea", med, V(-1.07, 8.3, -.25));
+      const vs = X.veias.map(l => l.map(VA)), mNo = () => mat(0x5fb08a, { emis: 0x0f3d2a, ei: .35, rough: .45 });
+      const gr = {}; const G = k => (gr[k] = gr[k] || { g: new T.Group(), m: mNo() });
+      const no = (k, p, s) => { const e = malha(new T.SphereGeometry(.07 * (s || 1), 14, 10), G(k).m, p); e.scale.set(1.2, .8, .9); G(k).g.add(e); };
+      const amostra = (k, l, a, b, n, dz) => { for (let i = 0; i < n; i++) { const p = l[Math.round(a + (b - a) * i / Math.max(1, n - 1))]; if (p) no(k, p.clone().add(V((R() - .5) * .12, 0, dz || .06))); } };
+      const mVaso = mat(0x8fd3ae, { rough: .4, emis: 0x0f3d2a, ei: .2 }), vasos = new T.Group(), COT = X.ref.cotovelo[1];
+      [0, 4].forEach(o => {
+        const perna = vs[o], jug = vs[o + 1], braco = vs[o + 2];
+        const iFem = perna.findIndex(p => p.y > 8.0); amostra("linfonodos_inguinais", perna, Math.max(0, iFem - 4), iFem, 5, .1);
+        amostra("linfonodos_cervicais", jug, 1, Math.min(jug.length - 4, 6), 6, .1);
+        const iAx = braco.findIndex(p => p.y > 12.6); amostra("linfonodos_axilares", braco, Math.max(0, iAx - 2), iAx + 2, 5, -.05);
+        vasos.add(tuboP(perna.filter((p, i) => i % 2 === 0).map(p => p.clone().add(V(.05, 0, .07))), .02, mVaso));
+        vasos.add(tuboP(braco.slice(0, iAx + 2).filter((p, i) => i % 2 === 0 && p.y > COT + .1).map(p => p.clone().add(V(0, 0, .07))), .02, mVaso));
+      });
+      const ao = X.arterias[0].map(VA).filter(p => p.y < 12.6 && p.y > 10.3).sort((a, b) => a.y - b.y);
+      const jE = vs[5][Math.min(vs[5].length - 1, 6)], jD = vs[1][Math.min(vs[1].length - 1, 6)];
+      const duc = new T.Group(), mDuc = mat(0x2dd4bf, { emis: 0x0f766e, ei: .35, rough: .35 });
+      duc.add(tuboP([...ao.map(p => p.clone().add(V(-.08, 0, -.14))), V(.25, 13.6, -.3), jE.clone()], .035, mDuc));
+      duc.add(malha(new T.SphereGeometry(1, 16, 12), mDuc, ao[0].clone().add(V(-.08, -.05, -.14)), null, [.09, .16, .08])); // cisterna do quilo
+      duc.add(tuboP([V(-.42, 13.25, -.2), V(-.38, 13.6, -.12), jD.clone()], .028, mDuc)); // ducto linfático direito
+      ao.filter((p, i) => i % 2 === 0).forEach(p => no("linfonodos_abdominais", p.clone().add(V(.14, 0, .05)), .9));
+      [[0, 10.35, .24], [-.22, 10.05, .3], [.22, 10.15, .3], [.04, 9.8, .3], [-.12, 9.55, .28]].forEach(p => no("linfonodos_abdominais", VA(p), .85));
+      [[-.17, 13.56, -.12], [.15, 13.55, -.1], [0, 13.42, -.08], [-.3, 13.3, -.05], [.32, 13.28, -.05]].forEach(p => no("linfonodos_mediastinais", VA(p), .85));
+      [-1, 1].forEach(s => { no("linfonodos_popliteos", V(s * .75, 4.86, -.4), .85); no("linfonodos_popliteos", V(s * .72, 4.68, -.42), .75); });
+      m.parte("vasos_linfaticos", vasos, V(1.25, 6.2, .1));
+      m.parte("ducto_toracico", duc, V(.02, 11.6, -.35));
+      const anc = { linfonodos_cervicais: V(-.48, 14.85, .25), linfonodos_axilares: V(1.62, 12.75, -.1), linfonodos_mediastinais: V(.32, 13.28, -.05), linfonodos_abdominais: V(.22, 10.15, .3), linfonodos_inguinais: V(-.95, 8.1, .25), linfonodos_popliteos: V(-.75, 4.86, -.4) };
+      // âncora do rótulo: o linfonodo mais próximo do centro do grupo (o ponto fica sobre um linfonodo real)
+      Object.keys(anc).forEach(k => { if (!gr[k]) return; const ch = gr[k].g.children, c = V(0, 0, 0); ch.forEach(e => c.add(e.position)); c.divideScalar(ch.length);
+        if (k !== "linfonodos_axilares" && k !== "linfonodos_inguinais" && k !== "linfonodos_popliteos" && k !== "linfonodos_cervicais") { m.parte(k, gr[k].g, ch.reduce((a, e) => e.position.distanceTo(c) < a.distanceTo(c) ? e.position : a, ch[0].position).clone()); return; }
+        const lado = ch.filter(e => e.position.x * (anc[k].x || 1) > 0), alvo = lado.length ? lado : ch, c2 = V(0, 0, 0); alvo.forEach(e => c2.add(e.position)); c2.divideScalar(alvo.length);
+        m.parte(k, gr[k].g, alvo.reduce((a, e) => e.position.distanceTo(c2) < a.distanceTo(c2) ? e.position : a, alvo[0].position).clone()); });
+      // placas de Peyer: aglomerados de nódulos linfoides na parte final do intestino delgado (íleo)
+      const pey = new T.Group(), mPey = mat(0xfde68a, { emis: 0x7c5a07, ei: .35, rough: .5 }), il = X.intestino.map(VA);
+      il.slice(Math.floor(il.length * .45)).forEach((p, i) => { if (i % 3) return; for (let k = 0; k < 3; k++) { const e = malha(new T.SphereGeometry(.045, 10, 8), mPey, p.clone().add(V((R() - .5) * .12, (R() - .5) * .08, .08 + R() * .04))); e.scale.set(1.6, .8, .6); pey.add(e); } });
+      m.parte("placas_peyer", pey, il[Math.floor(il.length * .75)].clone().add(V(0, 0, .1)));
+      // corpo masculino ou feminino
+      m.sexo = s => grupos.pele.children.forEach(me => me.userData.oculto = me.userData.sexo !== s);
+      m.sexo("fem");
       return m;
     }
   };

@@ -1,11 +1,11 @@
 /* Microvida 3D — service worker
    Funciona sem internet depois do primeiro acesso. Arquivos do app: tenta a rede
    primeiro (para receber atualizações) e usa a cópia guardada quando estiver offline. */
-const VERSAO = "microvida-v3";
+const VERSAO = "microvida-v4";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.webmanifest", "./icone.svg",
   "./css/estilo.css",
-  "./js/vendor/three.min.js", "./js/vendor/OrbitControls.js",
+  "./js/vendor/three.min.js", "./js/vendor/OrbitControls.js", "./js/vendor/meshopt_decoder.js", "./modelos/corpo_imune.js",
   "./js/dados.js", "./js/modelos.js", "./js/simulacoes.js", "./js/app.js",
   "./icones/icone-192.png", "./icones/icone-512.png", "./icones/icone-maskable-192.png", "./icones/icone-maskable-512.png",
   "./icones/apple-touch-icon.png", "./icones/favicon-32.png"

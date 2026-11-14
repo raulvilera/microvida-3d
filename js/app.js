@@ -50,6 +50,7 @@
       const vf = T.MathUtils.degToRad(cam.fov) / 2, hf = Math.atan(Math.tan(vf) * cam.aspect);
       const precisa = (est.esfera.radius + est.esfera.center.distanceTo(a)) / Math.sin(Math.min(vf, hf)) * .98;
       const d = p.distanceTo(a); if (precisa > d) p = p.clone().sub(a).multiplyScalar(precisa / d).add(a);
+      const af = cam.aspect < .8 ? (MODELOS[est.modeloId].afastarCelular || 1) : 1; if (af !== 1) p = p.clone().sub(a).multiplyScalar(af).add(a);
     }
     voarPara(a, p);
     if (v[3] && v[3].corte !== undefined) definirCorte(v[3].corte);
@@ -79,8 +80,13 @@
 
   /* ------------------------------ MODELOS ------------------------------ */
   function carregarModelo(id, semInfo) {
+    const def = MODELOS[id];
+    if (def.preparar && !def.pronto()) {
+      avisar("Carregando o modelo anatômico 3D…"); carga.classList.remove("some"); $("#cargaTxt").textContent = "Montando o corpo humano…"; carga.style.setProperty("--p", .5);
+      return def.preparar().then(() => { carga.classList.add("some"); carregarModelo(id, semInfo); }).catch(() => { carga.classList.add("some"); avisar("Não foi possível carregar o modelo anatômico. Verifique a internet."); });
+    }
     limparPalco();
-    const def = MODELOS[id], md = def.construir();
+    const md = def.construir();
     est.modo = "modelo"; est.modeloId = id; est.ultimoModelo = id; est.atual = md;
     cena.add(md.raiz);
     { const bx = new T.Box3(), b2 = new T.Box3(); md.raiz.updateMatrixWorld(true);
@@ -99,6 +105,8 @@
     listarPartes();
     criarRotulos(Object.keys(md.ancoras).map(p => ({ parte: p, txt: D.fichas[p] ? D.fichas[p].nome : p, cor: D.fichas[p] ? D.fichas[p].cor : "#fff", local: md.ancoras[p] })));
     if (def.escala) { $("#escalaInfo").hidden = false; $("#escalaInfo").textContent = def.escala; }
+    est.semRotulo = new Set(); montarCamadas(def);
+    if (def.camadas) aplicarCamada(def.camadaInicial || 0, true);
     $("#secCorte").hidden = false;
     if (!semInfo) mostrarModeloInfo(id);
   }
@@ -117,9 +125,34 @@
   function aplicarParte(p) {
     const op = est.opac[p], vis = est.visivel[p] && op > 0.02;
     est.mats[p].forEach(m => { const o = m.userData.baseOp * op; m.opacity = o; m.transparent = o < 0.999; m.depthWrite = o >= 0.6 ? m.userData.dw0 : false; });
-    (est.atual.partes[p] || []).forEach(me => me.visible = vis);
+    (est.atual.partes[p] || []).forEach(me => me.visible = vis && !me.userData.oculto);
   }
-  function mostrarTudo() { Object.keys(est.mats).forEach(p => { est.visivel[p] = true; est.opac[p] = 1; aplicarParte(p); }); listarPartes(); }
+  function montarCamadas(def) {
+    const sec = $("#secCamadas");
+    if (!def.camadas) { sec.hidden = true; return; }
+    sec.hidden = false;
+    $("#listaCamadas").innerHTML = def.camadas.map((c, i) => `<button class="chip" data-camada="${i}">${c.nome}</button>`).join("") +
+      (est.atual.sexo ? `<div class="seg-sexo"><button class="chip ativo" data-sexo="fem">Corpo feminino</button><button class="chip" data-sexo="masc">Corpo masculino</button></div>` : "");
+    $$("#listaCamadas [data-camada]").forEach(b => b.onclick = () => aplicarCamada(+b.dataset.camada));
+    $$("#listaCamadas [data-sexo]").forEach(b => b.onclick = () => { est.atual.sexo(b.dataset.sexo); $$("#listaCamadas [data-sexo]").forEach(x => x.classList.toggle("ativo", x === b)); aplicarParte("pele"); });
+  }
+  function aplicarCamada(i, silencioso) {
+    const def = MODELOS[est.modeloId]; if (!def || !def.camadas) return;
+    const c = def.camadas[i]; est.camada = i; est.semRotulo = new Set();
+    Object.keys(est.mats).forEach(p => {
+      const dentro = c.partes === "*" || c.partes.includes(p), extra = c.extra && c.extra[p] != null;
+      est.visivel[p] = dentro || extra;
+      est.opac[p] = extra ? c.extra[p] : (c.opac && c.opac[p] != null ? c.opac[p] : 1);
+      if (extra && !dentro) est.semRotulo.add(p);
+      aplicarParte(p);
+    });
+    $$("#listaCamadas [data-camada]").forEach(b => b.classList.toggle("ativo", +b.dataset.camada === i));
+    listarPartes();
+    if (!silencioso) avisar("Mostrando: " + c.nome);
+  }
+  function mostrarTudo() {
+    const def = MODELOS[est.modeloId];
+    if (est.modo === "modelo" && def && def.camadas) { const k = def.camadas.findIndex(c => c.partes === "*"); return aplicarCamada(k < 0 ? 0 : k, true); } Object.keys(est.mats).forEach(p => { est.visivel[p] = true; est.opac[p] = 1; aplicarParte(p); }); listarPartes(); }
 
   /* ------------------------------ CORTE ------------------------------ */
   function definirCorte(on, silencioso) {
@@ -140,7 +173,7 @@
     return l > 0.28 ? "#08111f" : "#ffffff";
   }
   function criarRotulos(lista) {
-    const box = $("#rotulos"); box.innerHTML = '<svg class="linhas-rot" aria-hidden="true"></svg>'; est.rotEls = [];
+    const box = $("#rotulos"); box.innerHTML = '<svg class="linhas-rot" aria-hidden="true"></svg>'; est.rotEls = []; est.rotMax = 0;
     est.svgRot = box.querySelector("svg");
     lista.forEach(r => {
       const cor = r.cor || "#5eead4", el = document.createElement("div"); el.className = "rot"; el.textContent = r.txt;
@@ -188,7 +221,7 @@
     const w = palco.clientWidth, h = palco.clientHeight, cand = [];
     est.rotEls.forEach(r => {
       let vis = est.rotulos;
-      if (r.parte && est.modo === "modelo") vis = vis && est.visivel[r.parte] && est.opac[r.parte] > .05;
+      if (r.parte && est.modo === "modelo") vis = vis && est.visivel[r.parte] && est.opac[r.parte] > .05 && !(est.semRotulo && est.semRotulo.has(r.parte) && r.parte !== est.selecionado);
       if (r.local && est.atual) { _v.copy(r.local); est.atual.raiz.localToWorld(_v); }
       else if (r.obj) { r.obj.getWorldPosition(_v); if (r.dy) _v.y += r.dy; if (!r.obj.visible) vis = false; }
       else if (r.pos) _v.copy(r.pos);
@@ -201,7 +234,7 @@
       if (!r.tam || !r.tam[0]) r.tam = [r.el.offsetWidth, r.el.offsetHeight];
       cand.push({ r, ax: (_v.x * .5 + .5) * w, ay: (-_v.y * .5 + .5) * h, z: _v.z, cw: r.tam[0], ch: r.tam[1] });
     });
-    const M = 8, G = 18, ocup = [], linhas = [];
+    const M = w < 500 ? 4 : 8, G = w < 500 ? 10 : 18, ocup = [], linhas = [];
     const R = est.modo === "modelo" ? contornoTela(w, h) : null;
     const usaFora = R && (R.r - R.l) < w * .97 || R && (R.b - R.t) < h * .97;
     const resto = [];
@@ -209,10 +242,15 @@
     if (usaFora) {
       const cx = (R.l + R.r) / 2, cy = (R.t + R.b) / 2, rw = Math.max(1, R.r - R.l), rh = Math.max(1, R.b - R.t);
       const espaco = { l: R.l - G - M, r: w - R.r - G - M, t: R.t - G - M, b: h - R.b - G - M };
+      // modelo alto em tela estreita: limita a largura dos rótulos ao espaço das laterais (o texto quebra em linhas)
+      const lim = rh > rw * 1.3 ? Math.floor(Math.max(espaco.l, espaco.r)) - 3 : 0, alvoMax = lim >= 58 && cand.some(c => c.cw > lim) ? lim : 0;
+      if (alvoMax !== (est.rotMax || 0) && (alvoMax < (est.rotMax || 1e9) && alvoMax > 0 || Math.abs(alvoMax - (est.rotMax || 0)) > 8)) { est.rotMax = alvoMax; est.rotEls.forEach(r => { r.el.style.maxWidth = alvoMax ? alvoMax + "px" : ""; r.el.classList.toggle("quebra", !!alvoMax); r.tam = null; }); }
       const grupos = { l: [], r: [], t: [], b: [] };
       cand.forEach(c => {
         const dx = (c.ax - cx) / rw, dy = (c.ay - cy) / rh, H = dx < 0 ? "l" : "r", Vt = dy < 0 ? "t" : "b", H2 = H === "l" ? "r" : "l", V2 = Vt === "t" ? "b" : "t";
-        const pref = Math.abs(dx) >= Math.abs(dy) ? [H, Vt, V2, H2] : [Vt, H, H2, V2];
+        // modelo alto (corpo): rótulos nas laterais; modelo largo (bactéria): em cima e embaixo
+        const alto = rh > rw * 1.3 && Math.max(espaco.l, espaco.r) >= c.cw, largo = rw > rh * 1.3 && Math.max(espaco.t, espaco.b) >= c.ch;
+        const pref = alto ? [H, H2, Vt, V2] : largo ? [Vt, V2, H, H2] : Math.abs(dx) >= Math.abs(dy) ? [H, Vt, V2, H2] : [Vt, H, H2, V2];
         const lado = pref.find(s => (s === "l" || s === "r") ? espaco[s] >= c.cw : espaco[s] >= c.ch);
         if (lado) grupos[lado].push(c); else resto.push(c);
       });
@@ -268,7 +306,8 @@
   function limparRealce(p) { (est.mats[p] || []).forEach(m => { m.emissive.setHex(m.userData.em0); m.emissiveIntensity = m.userData.ei0; }); }
   function selecionar(p, voar) {
     if (!D.fichas[p]) return;
-    const f = D.fichas[p];
+    const f = D.fichas[p], def = MODELOS[f.modelo];
+    if (def.preparar && !def.pronto()) { carregarModelo(f.modelo, true); return def.preparar().then(() => setTimeout(() => selecionar(p, voar), 50)); }
     if (est.modo !== "modelo" || est.modeloId !== f.modelo) carregarModelo(f.modelo, true);
     if (est.desafio) return responderDesafio(p);
     if (est.selecionado) limparRealce(est.selecionado);
@@ -358,16 +397,18 @@
     formas: "Bactérias são classificadas pela forma: cocos (esferas), bacilos (bastonetes), espirilos (espirais) e vibriões (vírgula). Os cocos podem se agrupar.",
     escala: "Aqui os tamanhos são REAIS entre si. Use as vistas para viajar da célula humana até o vírus — ele é minúsculo! Dica: aproxime bem para enxergá-lo.",
     defesa: "Os glóbulos brancos (leucócitos) defendem o corpo. Macrófagos e neutrófilos fazem parte da imunidade inata; linfócitos B e T, da imunidade adaptativa.",
-    corpo: "O sistema imune inclui órgãos linfoides: medula óssea e timo (primários), linfonodos, baço e tonsilas (secundários). A pele é a primeira barreira.",
+    corpo: "Modelo anatômico real (BodyParts3D e HuBMAP). Use as <b>camadas</b> para ver as <b>barreiras</b> (1ª linha de defesa: pele, lágrimas, muco, saliva, ácido do estômago, microbiota), os órgãos linfoides <b>primários</b> (medula óssea e timo, onde as células de defesa nascem e amadurecem) e os <b>secundários</b> (linfonodos, baço, tonsilas, apêndice e placas de Peyer, onde elas encontram os invasores).",
     mosquito: "A fêmea do Aedes aegypti transmite os vírus da dengue, zika, chikungunya e febre amarela urbana. Repare nas listras brancas e na ‘lira’ do tórax."
   };
   function mostrarModeloInfo(id) {
     if (est.desafio) return;
     const m = D.modelos.find(x => x.id === id);
-    info.innerHTML = `<div class="cartao"><div class="etiqueta" style="--c:var(--acento)">${m.aula}</div><h2>${m.em} ${m.nome}</h2><p>${introModelo[id]}</p>
+    const camadas = MODELOS[id].camadas ? `<h4>Camadas</h4><div class="chips">${MODELOS[id].camadas.map((c, i) => `<button class="chip ${i === (est.camada || 0) ? "ativo" : ""}" data-cam="${i}">${c.nome}</button>`).join("")}</div>` : "";
+    info.innerHTML = `<div class="cartao"><div class="etiqueta" style="--c:var(--acento)">${m.aula}</div><h2>${m.em} ${m.nome}</h2><p>${introModelo[id]}</p>${camadas}
       <p class="muted mini-txt">Clique em uma estrutura no modelo ou em um nome abaixo para abrir a ficha.</p>
       <div class="acoes"><button class="btn" id="bOuvirM">🔊 Ouvir</button></div></div>${partesIrmas(id)}`;
     $("#bOuvirM").onclick = () => falar(introModelo[id].replace(/<[^>]+>/g, ""));
+    info.querySelectorAll("[data-cam]").forEach(b => b.onclick = () => { aplicarCamada(+b.dataset.cam); info.querySelectorAll("[data-cam]").forEach(x => x.classList.toggle("ativo", x === b)); });
     ligarChips(info);
   }
   function mostrarBoasVindas() {
@@ -488,6 +529,7 @@
       $("#bDesNovo").onclick = iniciarDesafio; est.desafio = null; return;
     }
     const id = d.fila[d.i], f = D.fichas[id]; d.tent = 0;
+    if (MODELOS[f.modelo].preparar && !MODELOS[f.modelo].pronto()) { MODELOS[f.modelo].preparar().then(rodada); return; }
     if (est.modo !== "modelo" || est.modeloId !== f.modelo) { const des = est.desafio; est.desafio = null; carregarModelo(f.modelo, true); est.desafio = des; }
     mostrarTudo();
     est.rotulos = false; $("#btnRotulos").classList.remove("ativo");
@@ -523,7 +565,7 @@
         <p class="muted mini-txt">Depois de aberto uma vez com internet, o Microvida 3D funciona offline — ótimo para a sala de aula.</p></div>
       <div class="cartao"><h3>📖 Glossário</h3><dl class="glossario">${D.glossario.map(([t, d]) => `<dt>${t}</dt><dd>${d}</dd>`).join("")}</dl></div>
       <div class="cartao"><h3>🔎 Referências</h3><ul class="refs">${D.referencias.map(([t, d, u]) => `<li><b><a href="${u}" target="_blank" rel="noopener">${t}</a></b><br><small class="muted">${d}</small></li>`).join("")}</ul>
-      <p class="muted mini-txt">Os modelos são didáticos e esquemáticos, construídos por código. Formas e cores são representações; apenas o modelo “Escala microscópica” mantém as proporções reais. Dados de cidades nas simulações são fictícios quando indicado.</p></div>`;
+      <p class="muted mini-txt">O modelo “Corpo e defesas” usa malhas anatômicas reais (BodyParts3D e HuBMAP, CC BY 4.0); linfonodos, vasos, medula e placas de Peyer foram posicionados sobre trajetos medidos nessas malhas. Os demais modelos são didáticos, construídos por código; apenas a “Escala microscópica” mantém as proporções reais. Dados de cidades nas simulações são fictícios quando indicado.</p></div>`;
   }
 
   /* ------------------------------ BUSCA ------------------------------ */
@@ -624,5 +666,6 @@
   setTimeout(() => carga.classList.add("some"), 400);
   { const aba = new URLSearchParams(location.search).get("aba"); if (["simular", "quiz", "desafio", "habilidades", "saiba"].includes(aba)) trocarAba(aba); }
   setTimeout(() => $(".ajuda-gestos").classList.add("some"), 9000);
+  setTimeout(() => { if (MODELOS.corpo.preparar) MODELOS.corpo.preparar().catch(() => { }); }, 2500);
   window.APP = { est, carregarModelo, abrirSim, selecionar, trocarAba, cam, ctl, cena };
 })();
