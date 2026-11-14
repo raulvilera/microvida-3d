@@ -32,7 +32,12 @@
 
   function redimensionar() {
     const w = palco.clientWidth, h = palco.clientHeight; if (!w || !h) return;
-    renderer.setSize(w, h, false); cam.aspect = w / h; cam.updateProjectionMatrix();
+    renderer.setSize(w, h, false); cam.aspect = w / h; ajustarCentro();
+  }
+  function ajustarCentro() {
+    const w = palco.clientWidth, h = palco.clientHeight, d = est && est.deslLeg || 0;
+    if (d && w && h) cam.setViewOffset(w, h, 0, d, w, h); else cam.clearViewOffset();
+    cam.updateProjectionMatrix();
   }
   new ResizeObserver(redimensionar).observe(palco);
 
@@ -123,6 +128,7 @@
     });
   }
   function aplicarParte(p) {
+    est.rotSujo = true; est.pinSig = null;
     const op = est.opac[p], vis = est.visivel[p] && op > 0.02;
     est.mats[p].forEach(m => { const o = m.userData.baseOp * op; m.opacity = o; m.transparent = o < 0.999; m.depthWrite = o >= 0.6 ? m.userData.dw0 : false; });
     (est.atual.partes[p] || []).forEach(me => me.visible = vis && !me.userData.oculto);
@@ -173,13 +179,13 @@
     return l > 0.28 ? "#08111f" : "#ffffff";
   }
   function criarRotulos(lista) {
-    const box = $("#rotulos"); box.innerHTML = '<svg class="linhas-rot" aria-hidden="true"></svg>'; est.rotEls = []; est.rotMax = 0;
+    const box = $("#rotulos"); box.innerHTML = '<svg class="linhas-rot" aria-hidden="true"></svg>'; est.rotEls = []; est.pinSig = null; est.rotSujo = true; est.rotSigCam = null;
     est.svgRot = box.querySelector("svg");
     lista.forEach(r => {
       const cor = r.cor || "#5eead4", el = document.createElement("div"); el.className = "rot"; el.textContent = r.txt;
       el.style.setProperty("--c", cor); el.style.setProperty("--ct", corTexto(cor));
       if (r.parte) el.onclick = () => selecionar(r.parte, false);
-      box.appendChild(el); r.el = el; r.cor = cor; r.tam = null; est.rotEls.push(r);
+      box.appendChild(el); r.el = el; r.cor = cor; r.tam = null; r.modo = null; est.rotEls.push(r);
     });
   }
 
@@ -213,12 +219,16 @@
     return { l: Math.max(0, l), t: Math.max(0, t), r: Math.min(w, r), b: Math.min(h, b) };
   }
 
-  /* Rótulos FORA da estrutura: cada um vai para a lateral, o topo ou a base do modelo
-     (o lado com espaço mais próximo do ponto que ele identifica) e se liga ao ponto por
-     uma linha da mesma cor. Sem espaço livre fora (ex.: cenários que ocupam a tela toda),
-     o rótulo procura o lugar livre mais próximo do ponto. */
-  function atualizarRotulos() {
-    const w = palco.clientWidth, h = palco.clientHeight, cand = [];
+  /* =====================================================================
+     RÓTULOS — dois modos, ambos estáveis (nada é recalculado enquanto a câmera se move):
+     • Telas largas: nomes em colunas fora do modelo, com linhas de chamada. Ao girar, os
+       nomes somem suavemente e voltam já organizados quando a câmera para.
+     • Telas estreitas (celular): números coloridos presos às estruturas + legenda numerada,
+       como num atlas de anatomia. Os números acompanham a estrutura ao girar.
+     ===================================================================== */
+  const ehEstreita = () => palco.clientWidth < 640;
+  function projetarRotulos(w, h) {
+    const cand = [];
     est.rotEls.forEach(r => {
       let vis = est.rotulos;
       if (r.parte && est.modo === "modelo") vis = vis && est.visivel[r.parte] && est.opac[r.parte] > .05 && !(est.semRotulo && est.semRotulo.has(r.parte) && r.parte !== est.selecionado);
@@ -226,66 +236,98 @@
       else if (r.obj) { r.obj.getWorldPosition(_v); if (r.dy) _v.y += r.dy; if (!r.obj.visible) vis = false; }
       else if (r.pos) _v.copy(r.pos);
       if (r.oculto) vis = false;
+      const wy = _v.y;
       if (vis) { _v.project(cam); if (_v.z > 1 || Math.abs(_v.x) > 1.02 || Math.abs(_v.y) > 1.02) vis = false; }
-      if (r.atualizarTxt) { const tx = r.atualizarTxt(); if (tx !== r.el.textContent) { r.el.textContent = tx; r.tam = null; } }
+      if (r.atualizarTxt) { const tx = r.atualizarTxt(); if (tx !== r.txt) { r.txt = tx; r.modo = null; r.tam = null; } }
       r.el.classList.toggle("sel", !!r.parte && r.parte === est.selecionado);
       if (!vis) { r.el.style.display = "none"; return; }
       r.el.style.display = "";
-      if (!r.tam || !r.tam[0]) r.tam = [r.el.offsetWidth, r.el.offsetHeight];
-      cand.push({ r, ax: (_v.x * .5 + .5) * w, ay: (-_v.y * .5 + .5) * h, z: _v.z, cw: r.tam[0], ch: r.tam[1] });
+      cand.push({ r, ax: (_v.x * .5 + .5) * w, ay: (-_v.y * .5 + .5) * h, z: _v.z, wy });
     });
-    const M = w < 500 ? 4 : 8, G = w < 500 ? 10 : 18, ocup = [], linhas = [];
-    const R = est.modo === "modelo" ? contornoTela(w, h) : null;
-    const usaFora = R && (R.r - R.l) < w * .97 || R && (R.b - R.t) < h * .97;
-    const resto = [];
-    const ponto = (c, x, y) => { ocup.push([x, y, x + c.cw, y + c.ch]); c.x = x; c.y = y; };
-    if (usaFora) {
+    return cand;
+  }
+  function modoRotulo(r, modo) {
+    if (r.modo === modo) return;
+    r.modo = modo; r.el.classList.toggle("pino", modo === "pino");
+    r.el.textContent = modo === "pino" ? (r.num || "") : r.txt; r.tam = null;
+  }
+  function atualizarRotulos() {
+    const w = palco.clientWidth, h = palco.clientHeight, box = $("#rotulos");
+    const cand = projetarRotulos(w, h);
+    const pinos = est.modo === "modelo" && ehEstreita();
+    box.classList.toggle("modo-pinos", pinos);
+    if (pinos) { box.classList.remove("movendo"); return layoutPinos(cand, w, h); }
+    $("#legenda").hidden = true; if (est.deslLeg) { est.deslLeg = 0; ajustarCentro(); }
+    cand.forEach(c => modoRotulo(c.r, "nome"));
+    if (est.modo === "modelo") {
+      const sigCam = cam.matrixWorld.elements.map(x => x.toFixed(2)).join(",") + "|" + w + "x" + h, agora = performance.now();
+      if (sigCam !== est.rotSigCam) { est.rotSigCam = sigCam; est.rotMudou = agora; est.rotSujo = true; box.classList.add("movendo"); return; }
+      if (agora - est.rotMudou < 180) return;
+      const sigVis = cand.map(c => c.r.txt + (c.r.parte === est.selecionado ? "*" : "")).join("|");
+      if (!est.rotSujo && sigVis === est.rotSigVis) return;
+      est.rotSigVis = sigVis; est.rotSujo = false;
+      layoutChamadas(cand, w, h); box.classList.remove("movendo");
+      return;
+    }
+    box.classList.remove("movendo");
+    layoutLivre(cand, w, h, [], []);
+  }
+  function medir(c) { if (!c.r.tam || !c.r.tam[0]) c.r.tam = [c.r.el.offsetWidth, c.r.el.offsetHeight]; c.cw = c.r.tam[0]; c.ch = c.r.tam[1]; }
+
+  /* ---- telas largas: colunas fora do modelo ---- */
+  function layoutChamadas(cand, w, h) {
+    cand.forEach(medir);
+    const M = 8, G = 18, ocup = [], linhas = [], resto = [];
+    const R = contornoTela(w, h);
+    const ponto = (c, x, y, lado) => { ocup.push([x, y, x + c.cw, y + c.ch]); c.x = x; c.y = y; c.lado = lado; };
+    if (R && ((R.r - R.l) < w * .97 || (R.b - R.t) < h * .97)) {
       const cx = (R.l + R.r) / 2, cy = (R.t + R.b) / 2, rw = Math.max(1, R.r - R.l), rh = Math.max(1, R.b - R.t);
       const espaco = { l: R.l - G - M, r: w - R.r - G - M, t: R.t - G - M, b: h - R.b - G - M };
-      // modelo alto em tela estreita: limita a largura dos rótulos ao espaço das laterais (o texto quebra em linhas)
-      const lim = rh > rw * 1.3 ? Math.floor(Math.max(espaco.l, espaco.r)) - 3 : 0, alvoMax = lim >= 58 && cand.some(c => c.cw > lim) ? lim : 0;
-      if (alvoMax !== (est.rotMax || 0) && (alvoMax < (est.rotMax || 1e9) && alvoMax > 0 || Math.abs(alvoMax - (est.rotMax || 0)) > 8)) { est.rotMax = alvoMax; est.rotEls.forEach(r => { r.el.style.maxWidth = alvoMax ? alvoMax + "px" : ""; r.el.classList.toggle("quebra", !!alvoMax); r.tam = null; }); }
       const grupos = { l: [], r: [], t: [], b: [] };
       cand.forEach(c => {
         const dx = (c.ax - cx) / rw, dy = (c.ay - cy) / rh, H = dx < 0 ? "l" : "r", Vt = dy < 0 ? "t" : "b", H2 = H === "l" ? "r" : "l", V2 = Vt === "t" ? "b" : "t";
-        // modelo alto (corpo): rótulos nas laterais; modelo largo (bactéria): em cima e embaixo
-        const alto = rh > rw * 1.3 && Math.max(espaco.l, espaco.r) >= c.cw, largo = rw > rh * 1.3 && Math.max(espaco.t, espaco.b) >= c.ch;
+        const alto = rh > rw * 1.3, largo = rw > rh * 1.3;
         const pref = alto ? [H, H2, Vt, V2] : largo ? [Vt, V2, H, H2] : Math.abs(dx) >= Math.abs(dy) ? [H, Vt, V2, H2] : [Vt, H, H2, V2];
         const lado = pref.find(s => (s === "l" || s === "r") ? espaco[s] >= c.cw : espaco[s] >= c.ch);
         if (lado) grupos[lado].push(c); else resto.push(c);
       });
-      // topo e base primeiro: linhas horizontais; o que não couber vai para uma lateral com espaço
       ["t", "b"].forEach(s => {
         const g = grupos[s].sort((a, b) => a.ax - b.ax), fimLinha = [];
         g.forEach(c => {
           const passo = c.ch + 6, nLin = Math.max(1, Math.floor((espaco[s] + 6) / passo));
           for (let k = 0; k < nLin; k++) {
             const x = Math.max(M, Math.min(w - M - c.cw, c.ax - c.cw / 2), (fimLinha[k] ?? -1e9) + 6);
-            if (x + c.cw <= w - M) { const y = s === "t" ? R.t - G - c.ch - k * passo : R.b + G + k * passo; fimLinha[k] = x + c.cw; ponto(c, x, y); c.lado = s; return; }
+            if (x + c.cw <= w - M) { fimLinha[k] = x + c.cw; return ponto(c, x, s === "t" ? R.t - G - c.ch - k * passo : R.b + G + k * passo, s); }
           }
           const lat = [c.ax < cx ? "l" : "r", c.ax < cx ? "r" : "l"].find(q => espaco[q] >= c.cw);
           if (lat) grupos[lat].push(c); else resto.push(c);
         });
       });
-      // laterais: colunas empilhadas
       ["l", "r"].forEach(s => {
         const g = grupos[s].sort((a, b) => a.ay - b.ay); let fim = M - 6;
         g.forEach(c => { c.y = Math.max(c.ay - c.ch / 2, fim + 6); fim = c.y + c.ch; });
         const exc = fim - (h - M); if (exc > 0) g.forEach(c => c.y = Math.max(M, c.y - exc));
-        g.forEach(c => { const x = s === "l" ? R.l - G - c.cw : R.r + G; ponto(c, Math.max(M, Math.min(w - M - c.cw, x)), c.y); c.lado = s; });
+        // alinha a coluna inteira pela borda do modelo (aspecto de legenda de atlas)
+        g.forEach(c => ponto(c, s === "l" ? Math.max(M, R.l - G - c.cw) : Math.min(w - M - c.cw, R.r + G), c.y, s));
       });
     } else cand.forEach(c => resto.push(c));
-    // sem espaço do lado de fora: lugar livre mais próximo do ponto
+    layoutLivre(resto, w, h, ocup, linhas, cand);
+  }
+
+  /* ---- posicionamento livre (cenários que ocupam a tela e simulações) ---- */
+  function layoutLivre(lista, w, h, ocup, linhas, todos) {
+    lista.forEach(medir);
     const bate = (x, y, cw, ch) => ocup.some(o => x < o[2] + 4 && x + cw + 4 > o[0] && y < o[3] + 4 && y + ch + 4 > o[1]);
-    resto.sort((a, b) => (b.r.parte === est.selecionado) - (a.r.parte === est.selecionado) || a.z - b.z).forEach(c => {
+    lista.sort((a, b) => (b.r.parte === est.selecionado) - (a.r.parte === est.selecionado) || a.z - b.z).forEach(c => {
       const { ax, ay, cw, ch } = c, up = ay - 14 - ch, st = ch + 5;
       const tent = [[ax - cw / 2, up], [ax - cw / 2, up - st], [ax + 12, ay - ch / 2], [ax - cw - 12, ay - ch / 2], [ax - cw / 2, ay + 14],
         [ax - cw / 2, up - 2 * st], [ax + 12, up], [ax - cw - 12, up], [ax + 12, ay + 14], [ax - cw - 12, ay + 14], [ax - cw / 2, ay + 14 + st]];
-      for (let [x, y] of tent) { x = Math.max(2, Math.min(w - cw - 2, x)); y = Math.max(2, Math.min(h - ch - 2, y)); if (!bate(x, y, cw, ch)) { ponto(c, x, y); c.lado = "livre"; return; } }
-      if (c.r.parte === est.selecionado) { ponto(c, Math.max(2, Math.min(w - cw - 2, ax - cw / 2)), Math.max(2, up)); c.lado = "livre"; return; }
-      c.r.el.style.display = "none";
+      if (c.r.off) tent.unshift([ax + c.r.off[0], ay + c.r.off[1]]); // mantém o lugar anterior se ainda estiver livre (evita pulos)
+      for (let [x, y] of tent) { x = Math.max(2, Math.min(w - cw - 2, x)); y = Math.max(2, Math.min(h - ch - 2, y)); if (!bate(x, y, cw, ch)) { ocup.push([x, y, x + cw, y + ch]); c.x = x; c.y = y; c.lado = "livre"; c.r.off = [x - ax, y - ay]; return; } }
+      if (c.r.parte === est.selecionado) { c.x = Math.max(2, Math.min(w - cw - 2, ax - cw / 2)); c.y = Math.max(2, up); c.lado = "livre"; return; }
+      c.r.el.style.display = "none"; c.r.off = null;
     });
-    cand.forEach(c => {
+    (todos || lista).forEach(c => {
       if (c.x === undefined) return;
       c.r.el.style.transform = `translate(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px)`;
       let lx, ly;
@@ -294,11 +336,46 @@
       else if (c.lado === "t") { lx = Math.max(c.x + 8, Math.min(c.x + c.cw - 8, c.ax)); ly = c.y + c.ch; }
       else if (c.lado === "b") { lx = Math.max(c.x + 8, Math.min(c.x + c.cw - 8, c.ax)); ly = c.y; }
       else { lx = Math.max(c.x + 6, Math.min(c.x + c.cw - 6, c.ax)); ly = c.ay < c.y ? c.y : c.ay > c.y + c.ch ? c.y + c.ch : c.y + c.ch / 2; }
-      // linha com um cotovelo, como num livro didático
-      const mx = (c.lado === "l" || c.lado === "r") ? (c.lado === "l" ? lx + 8 : lx - 8) : lx, my = (c.lado === "t" || c.lado === "b") ? (c.lado === "t" ? ly + 6 : ly - 6) : ly;
+      const mx = c.lado === "l" ? lx + 10 : c.lado === "r" ? lx - 10 : lx, my = c.lado === "t" ? ly + 6 : c.lado === "b" ? ly - 6 : ly;
       linhas.push(`<polyline points="${c.ax.toFixed(1)},${c.ay.toFixed(1)} ${mx.toFixed(1)},${my.toFixed(1)} ${lx.toFixed(1)},${ly.toFixed(1)}" stroke="${c.r.cor}"/><circle cx="${c.ax.toFixed(1)}" cy="${c.ay.toFixed(1)}" r="3.6" fill="${c.r.cor}" stroke="#08111f" stroke-width="1"/>`);
     });
     if (est.svgRot) est.svgRot.innerHTML = linhas.join("");
+  }
+
+  /* ---- telas estreitas: números + legenda ---- */
+  function layoutPinos(cand, w, h) {
+    // numeração estável: de cima para baixo no corpo (altura real), refeita só quando muda o conjunto visível
+    const sig = cand.map(c => c.r.txt).sort().join("|");
+    if (sig !== est.pinSig) {
+      est.pinSig = sig;
+      cand.slice().sort((a, b) => b.wy - a.wy || a.r.txt.localeCompare(b.r.txt)).forEach((c, i) => { c.r.num = i + 1; c.r.modo = null; });
+      montarLegenda(cand);
+    }
+    cand.forEach(c => modoRotulo(c.r, "pino"));
+    const P = cand.map(c => ({ c, x: c.ax, y: c.ay })), D = 22;
+    for (let it = 0; it < 6; it++) for (let i = 0; i < P.length; i++) for (let j = i + 1; j < P.length; j++) {
+      const dx = P[j].x - P[i].x, dy = P[j].y - P[i].y, d = Math.hypot(dx, dy) || .01;
+      if (d < D) { const k = (D - d) / 2 / d; P[i].x -= dx * k; P[i].y -= dy * k; P[j].x += dx * k; P[j].y += dy * k; }
+    }
+    const linhas = [];
+    P.forEach(p => {
+      const x = Math.max(11, Math.min(w - 11, p.x)), y = Math.max(11, Math.min(h - 11, p.y)), c = p.c;
+      c.r.el.style.transform = `translate(${(x - 11).toFixed(1)}px, ${(y - 11).toFixed(1)}px)`;
+      if (Math.hypot(x - c.ax, y - c.ay) > 4) linhas.push(`<line x1="${c.ax.toFixed(1)}" y1="${c.ay.toFixed(1)}" x2="${x.toFixed(1)}" y2="${y.toFixed(1)}" stroke="${c.r.cor}"/><circle cx="${c.ax.toFixed(1)}" cy="${c.ay.toFixed(1)}" r="2.6" fill="${c.r.cor}"/>`);
+    });
+    if (est.svgRot) est.svgRot.innerHTML = linhas.join("");
+    const leg = $("#legenda"); leg.hidden = !cand.length;
+    // centraliza o modelo no espaço livre acima da legenda
+    const desl = leg.hidden ? 0 : Math.round(leg.offsetHeight / 2);
+    if (desl !== (est.deslLeg || 0)) { est.deslLeg = desl; ajustarCentro(); }
+    leg.querySelectorAll("li").forEach(li => li.classList.toggle("sel", li.dataset.p === est.selecionado));
+  }
+  function montarLegenda(cand) {
+    const leg = $("#legenda"), itens = cand.slice().sort((a, b) => a.r.num - b.r.num);
+    leg.innerHTML = `<button class="leg-tit" aria-expanded="${est.legAberta !== false}">Legenda <span>${itens.length}</span><b>${est.legAberta !== false ? "▾" : "▸"}</b></button>
+      <ol ${est.legAberta === false ? "hidden" : ""}>${itens.map(c => `<li data-p="${c.r.parte || ""}"><i style="background:${c.r.cor};color:${corTexto(c.r.cor)}">${c.r.num}</i><span>${c.r.txt}</span></li>`).join("")}</ol>`;
+    leg.querySelector(".leg-tit").onclick = () => { est.legAberta = est.legAberta === false; montarLegenda(cand); };
+    leg.querySelectorAll("li[data-p]").forEach(li => { if (li.dataset.p) li.onclick = () => selecionar(li.dataset.p, true); });
   }
 
   /* ------------------------------ SELEÇÃO ------------------------------ */
@@ -646,7 +723,8 @@
     if (pedidoInstalacao) { pedidoInstalacao.prompt(); const r = await pedidoInstalacao.userChoice; if (r.outcome === "accepted") $("#btnInstalar").hidden = true; pedidoInstalacao = null; return; }
     trocarAba("saiba"); setTimeout(() => { const c = $("#cartaoInstalar"); if (c) { c.scrollIntoView({ behavior: "smooth" }); c.classList.add("piscar"); } }, 50);
   };
-  const VERSAO_APP = "5 · 14/11/2026";
+  const VERSAO_APP = "6 · 14/11/2026";
+  let tinhaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => {
       navigator.serviceWorker.register("sw.js", { updateViaCache: "none" }).then(reg => {
@@ -657,6 +735,7 @@
       }).catch(() => { });
       let recarregou = false;
       navigator.serviceWorker.addEventListener("controllerchange", () => {
+        if (!tinhaControlador) { tinhaControlador = true; return; } // 1ª visita: só passou a funcionar offline
         if (recarregou) return; recarregou = true;
         try { sessionStorage.setItem("mv3d_atualizado", "1"); } catch (e) { }
         location.reload();
