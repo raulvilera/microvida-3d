@@ -126,16 +126,20 @@
 
   /* ------------------------------ RÓTULOS ------------------------------ */
   function criarRotulos(lista) {
-    const box = $("#rotulos"); box.innerHTML = ""; est.rotEls = [];
+    const box = $("#rotulos"); box.innerHTML = '<svg class="linhas-rot" aria-hidden="true"></svg>'; est.rotEls = [];
+    est.svgRot = box.querySelector("svg");
     lista.forEach(r => {
       const el = document.createElement("div"); el.className = "rot"; el.textContent = r.txt; el.style.setProperty("--c", r.cor || "#5eead4");
       if (r.parte) el.onclick = () => selecionar(r.parte, false);
-      box.appendChild(el); r.el = el; est.rotEls.push(r);
+      box.appendChild(el); r.el = el; r.tam = null; est.rotEls.push(r);
     });
   }
+  /* Rótulos sem sobreposição: cada rótulo tenta ficar logo acima do seu ponto; se bater
+     em outro já posicionado, procura um lugar livre acima/abaixo/ao lado e liga-se ao
+     ponto por uma linha. Se não houver espaço, fica oculto (o selecionado sempre aparece). */
   const _v = new T.Vector3();
   function atualizarRotulos() {
-    const w = palco.clientWidth, h = palco.clientHeight;
+    const w = palco.clientWidth, h = palco.clientHeight, cand = [];
     est.rotEls.forEach(r => {
       let vis = est.rotulos;
       if (r.parte && est.modo === "modelo") vis = vis && est.visivel[r.parte] && est.opac[r.parte] > .05;
@@ -143,12 +147,36 @@
       else if (r.obj) { r.obj.getWorldPosition(_v); if (r.dy) _v.y += r.dy; if (!r.obj.visible) vis = false; }
       else if (r.pos) _v.copy(r.pos);
       if (r.oculto) vis = false;
-      if (vis) { _v.project(cam); if (_v.z > 1) vis = false; }
-      r.el.style.display = vis ? "" : "none";
-      if (vis) r.el.style.transform = `translate(${(_v.x * .5 + .5) * w}px, ${(-_v.y * .5 + .5) * h - 14}px) translate(-50%, -100%)`;
+      if (vis) { _v.project(cam); if (_v.z > 1 || Math.abs(_v.x) > 1.05 || Math.abs(_v.y) > 1.05) vis = false; }
+      if (r.atualizarTxt) { const t = r.atualizarTxt(); if (t !== r.el.textContent) { r.el.textContent = t; r.tam = null; } }
       r.el.classList.toggle("sel", !!r.parte && r.parte === est.selecionado);
-      if (r.atualizarTxt) r.el.textContent = r.atualizarTxt();
+      if (!vis) { r.el.style.display = "none"; return; }
+      r.el.style.display = "";
+      if (!r.tam || !r.tam[0]) r.tam = [r.el.offsetWidth, r.el.offsetHeight];
+      cand.push({ r, ax: (_v.x * .5 + .5) * w, ay: (-_v.y * .5 + .5) * h, z: _v.z });
     });
+    // prioridade: selecionado primeiro, depois os mais próximos da câmera
+    cand.sort((a, b) => (b.r.parte === est.selecionado) - (a.r.parte === est.selecionado) || a.z - b.z);
+    const ocup = [], pad = 4, linhas = [];
+    const bate = (x, y, cw, ch) => ocup.some(o => x < o[2] + pad && x + cw + pad > o[0] && y < o[3] + pad && y + ch + pad > o[1]);
+    cand.forEach(c => {
+      const [cw, ch] = c.r.tam, gap = 12;
+      const ax = c.ax, ay = c.ay, up = ay - gap - ch, st = ch + 5;
+      const tent = [[ax - cw / 2, up], [ax - cw / 2, up - st], [ax + 10, ay - ch / 2], [ax - cw - 10, ay - ch / 2], [ax - cw / 2, ay + gap],
+        [ax - cw / 2, up - 2 * st], [ax + 10, up], [ax - cw - 10, up], [ax + 10, ay + gap], [ax - cw - 10, ay + gap], [ax - cw / 2, ay + gap + st], [ax - cw / 2, up - 3 * st]];
+      let pos = null;
+      for (let [x, y] of tent) {
+        x = Math.max(2, Math.min(w - cw - 2, x)); y = Math.max(2, Math.min(h - ch - 2, y));
+        if (!bate(x, y, cw, ch)) { pos = [x, y]; break; }
+      }
+      if (!pos && c.r.parte === est.selecionado) pos = [Math.max(2, Math.min(w - cw - 2, c.ax - cw / 2)), Math.max(2, c.ay - gap - ch)];
+      if (!pos) { c.r.el.style.display = "none"; return; }
+      ocup.push([pos[0], pos[1], pos[0] + cw, pos[1] + ch]);
+      c.r.el.style.transform = `translate(${pos[0]}px, ${pos[1]}px)`;
+      const lx = Math.max(pos[0] + 6, Math.min(pos[0] + cw - 6, c.ax)), ly = c.ay < pos[1] ? pos[1] : c.ay > pos[1] + ch ? pos[1] + ch : pos[1] + ch / 2;
+      linhas.push(`<line x1="${c.ax.toFixed(1)}" y1="${c.ay.toFixed(1)}" x2="${lx.toFixed(1)}" y2="${ly.toFixed(1)}" stroke="${c.r.el.style.getPropertyValue("--c")}"/><circle cx="${c.ax.toFixed(1)}" cy="${c.ay.toFixed(1)}" r="3.2" fill="${c.r.el.style.getPropertyValue("--c")}"/>`);
+    });
+    if (est.svgRot) est.svgRot.innerHTML = linhas.join("");
   }
 
   /* ------------------------------ SELEÇÃO ------------------------------ */

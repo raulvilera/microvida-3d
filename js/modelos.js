@@ -181,7 +181,13 @@
       pl.add(malha(new T.TorusGeometry(.55, .08, 8, 30), mp, V(4.3, -1, .8), [1, .4, 0]));
       pl.add(malha(new T.TorusGeometry(.45, .08, 8, 30), mp, V(-4.6, 1.1, -.6), [.3, 1.2, 0]));
       m.parte("plasmideo", pl, V(4.3, -1, .8));
-      const flG = new T.Group(); const fl = hélice(.55, 1.6, 7, .1, mat(0xc4b5fd)); fl.rotation.z = -Math.PI / 2; flG.add(fl); flG.position.set(7.9, 0, 0);
+      // flagelo: gancho na ponta da bactéria + filamento helicoidal que gira em torno do próprio eixo (como um saca-rolhas)
+      const flG = new T.Group(), giro = new T.Group(), mfl = mat(0xc4b5fd, { rough: .4 });
+      flG.position.set(7.75, 0, 0); flG.rotation.z = -Math.PI / 2; // eixo local +y aponta para +x (para fora da bactéria)
+      flG.add(malha(new T.CylinderGeometry(.16, .2, .45, 12), mat(0x8b5cf6), V(0, .1, 0))); // motor/gancho
+      const ptsF = [];
+      for (let i = 0; i <= 7 * 32; i++) { const a = i / 32 * Math.PI * 2, y = .3 + i / 32 * 1.55, r = .6 * Math.min(1, i / 40); ptsF.push(V(Math.cos(a) * r, y, Math.sin(a) * r)); }
+      const fl = tubo(ptsF, .1, mfl, false, 7 * 48); giro.add(fl); flG.add(giro);
       m.parte("flagelo", flG, V(15, .7, 0));
       const nF = 150, fim = new T.InstancedMesh(new T.CylinderGeometry(.04, .04, 1.1, 4), mat(0xa3e635), nF);
       for (let i = 0; i < nF; i++) {
@@ -191,7 +197,7 @@
         d.position.copy(base).add(nn.clone().multiplyScalar(3.7)); orientar(d, nn); d.updateMatrix(); fim.setMatrixAt(i, d.matrix);
       }
       m.parte("fimbrias", fim, V(0, -4.1, 1.5));
-      return Object.assign(m, { atualizar(dt, t) { fl.rotation.y += dt * 6; } });
+      return Object.assign(m, { atualizar(dt, t) { giro.rotation.y -= dt * 7; } });
     }
   };
 
