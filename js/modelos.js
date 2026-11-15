@@ -317,7 +317,7 @@
     return CI.prom;
   }
   M.corpo = {
-    preparar: prepararCorpo, pronto: () => !!CI.geos,
+    preparar: prepararCorpo, pronto: () => !!CI.geos, rotulosNumerados: true,
     vistas: [["Frente", [0, 10.5, 30], [0, 10.5, 0]], ["Lado", [28, 11, 4], [0, 10.5, 0]], ["Cabeça e pescoço", [1.6, 15.6, 5.2], [0, 15.3, .3]], ["Tórax", [0, 13, 8.5], [0, 12.9, .2]], ["Abdome", [0, 10.3, 8.5], [0, 10.2, .3]], ["Pernas", [0, 6, 16], [0, 6, 0]]],
     camadas: [
       { nome: "Órgãos linfoides", partes: ["medula_ossea", "timo", "tonsilas", "baco", "apendice", "placas_peyer", "linfonodos_cervicais", "linfonodos_axilares", "linfonodos_mediastinais", "linfonodos_abdominais", "linfonodos_inguinais", "linfonodos_popliteos", "vasos_linfaticos", "ducto_toracico"], extra: { pele: .12, esqueleto: .22 } },

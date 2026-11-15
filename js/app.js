@@ -33,6 +33,9 @@
   function redimensionar() {
     const w = palco.clientWidth, h = palco.clientHeight; if (!w || !h) return;
     renderer.setSize(w, h, false); cam.aspect = w / h; ajustarCentro();
+    // se a área 3D mudou de tamanho (ex.: painel fechado no celular) e o usuário não mexeu na câmera, reenquadra
+    const t = w + "x" + h; if (est.tamPalco && est.tamPalco !== t && est.vistaAtual && !est.usuarioMoveu) vista(est.vistaAtual, .35);
+    est.tamPalco = t;
   }
   function ajustarCentro() {
     const w = palco.clientWidth, h = palco.clientHeight, d = est && est.deslLeg || 0;
@@ -47,13 +50,14 @@
   }
   // afasta a câmera quando o palco é estreito (celular em pé, painel aberto)
   function ajustar(alvo, pos) { const f = Math.max(1, 1.08 / Math.max(cam.aspect, .3)); return pos.clone().sub(alvo).multiplyScalar(f).add(alvo); }
-  function vista(v) {
+  function vista(v, dur) {
     if (!v) return;
+    est.vistaAtual = v; est.usuarioMoveu = false;
     const a = new T.Vector3(...v[2]); let p = ajustar(a, new T.Vector3(...v[1]));
     // vista geral: afasta a câmera até o modelo inteiro caber (deixando margem para os rótulos)
     if (est.modo === "modelo" && est.esfera && MODELOS[est.modeloId].vistas[0] === v && est.modeloId !== "escala") {
       const vf = T.MathUtils.degToRad(cam.fov) / 2, hf = Math.atan(Math.tan(vf) * cam.aspect);
-      const precisa = (est.esfera.radius + est.esfera.center.distanceTo(a)) / Math.sin(Math.min(vf, hf)) * .98;
+      const precisa = (est.esfera.radius + est.esfera.center.distanceTo(a)) / Math.sin(Math.min(vf, hf)) * (ehEstreita() && MODELOS[est.modeloId].rotulosNumerados ? .8 : .98); // com números não precisa de margem para nomes
       const d = p.distanceTo(a); if (precisa > d) p = p.clone().sub(a).multiplyScalar(precisa / d).add(a);
       const af = cam.aspect < .8 ? (MODELOS[est.modeloId].afastarCelular || 1) : 1; if (af !== 1) p = p.clone().sub(a).multiplyScalar(af).add(a);
     }
@@ -254,7 +258,7 @@
   function atualizarRotulos() {
     const w = palco.clientWidth, h = palco.clientHeight, box = $("#rotulos");
     const cand = projetarRotulos(w, h);
-    const pinos = est.modo === "modelo" && ehEstreita();
+    const pinos = est.modo === "modelo" && ehEstreita() && !!MODELOS[est.modeloId].rotulosNumerados; // só o corpo humano usa números + legenda
     box.classList.toggle("modo-pinos", pinos);
     if (pinos) { box.classList.remove("movendo"); return layoutPinos(cand, w, h); }
     $("#legenda").hidden = true; if (est.deslLeg) { est.deslLeg = 0; ajustarCentro(); }
@@ -403,7 +407,8 @@
   }
   // clique no palco (sem arrastar)
   const ray = new T.Raycaster(), mouse = new T.Vector2(); let baixo = null;
-  renderer.domElement.addEventListener("pointerdown", e => { baixo = [e.clientX, e.clientY]; ctl.autoRotate = false; $("#btnGirar").classList.remove("ativo"); $(".ajuda-gestos").classList.add("some"); });
+  renderer.domElement.addEventListener("wheel", () => est.usuarioMoveu = true, { passive: true });
+  renderer.domElement.addEventListener("pointerdown", e => { est.usuarioMoveu = true; baixo = [e.clientX, e.clientY]; ctl.autoRotate = false; $("#btnGirar").classList.remove("ativo"); $(".ajuda-gestos").classList.add("some"); });
   renderer.domElement.addEventListener("pointerup", e => {
     if (!baixo || Math.hypot(e.clientX - baixo[0], e.clientY - baixo[1]) > 6) return;
     const r = renderer.domElement.getBoundingClientRect();
@@ -723,7 +728,7 @@
     if (pedidoInstalacao) { pedidoInstalacao.prompt(); const r = await pedidoInstalacao.userChoice; if (r.outcome === "accepted") $("#btnInstalar").hidden = true; pedidoInstalacao = null; return; }
     trocarAba("saiba"); setTimeout(() => { const c = $("#cartaoInstalar"); if (c) { c.scrollIntoView({ behavior: "smooth" }); c.classList.add("piscar"); } }, 50);
   };
-  const VERSAO_APP = "6 · 14/11/2026";
+  const VERSAO_APP = "7 · 15/11/2026";
   let tinhaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => {

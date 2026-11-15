@@ -1,7 +1,7 @@
 /* Microvida 3D — service worker
    Funciona sem internet depois do primeiro acesso. Arquivos do app: tenta a rede
    primeiro (para receber atualizações) e usa a cópia guardada quando estiver offline. */
-const VERSAO = "microvida-v6";
+const VERSAO = "microvida-v7";
 const ARQUIVOS = [
   "./", "./index.html", "./manifest.webmanifest", "./icone.svg",
   "./css/estilo.css",
