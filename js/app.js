@@ -20,7 +20,7 @@
   const contra = new T.DirectionalLight(0x5eead4, 0.55); contra.position.set(-10, -4, -8); cena.add(contra);
   const realce = new T.DirectionalLight(0xf472b6, 0.25); realce.position.set(10, -6, 4); cena.add(realce);
   const ctl = new T.OrbitControls(cam, renderer.domElement);
-  ctl.enableDamping = true; ctl.dampingFactor = 0.08; ctl.autoRotateSpeed = 1.2;
+  ctl.enableDamping = true; ctl.dampingFactor = 0.18; ctl.autoRotateSpeed = 1.2;
   const plano = new T.Plane(new T.Vector3(0, 0, -1), 0);
   carga.style.setProperty("--p", .6);
 
@@ -34,8 +34,8 @@
     const w = palco.clientWidth, h = palco.clientHeight; if (!w || !h) return;
     renderer.setSize(w, h, false); cam.aspect = w / h; ajustarCentro();
     // se a área 3D mudou de tamanho (ex.: painel fechado no celular) e o usuário não mexeu na câmera, reenquadra
-    const t = w + "x" + h; if (est.tamPalco && est.tamPalco !== t && est.vistaAtual && !est.usuarioMoveu) vista(est.vistaAtual, .35);
-    est.tamPalco = t;
+    const ant = est.tamPalco; est.tamPalco = [w, h];
+    if (ant && (Math.abs(ant[0] - w) > 40 || Math.abs(ant[1] - h) > 40) && est.vistaAtual && !est.usuarioMoveu) vista(est.vistaAtual, .35);
   }
   function ajustarCentro() {
     const w = palco.clientWidth, h = palco.clientHeight, d = est && est.deslLeg || 0;
@@ -264,13 +264,15 @@
     $("#legenda").hidden = true; if (est.deslLeg) { est.deslLeg = 0; ajustarCentro(); }
     cand.forEach(c => modoRotulo(c.r, "nome"));
     if (est.modo === "modelo") {
-      const sigCam = cam.matrixWorld.elements.map(x => x.toFixed(2)).join(",") + "|" + w + "x" + h, agora = performance.now();
-      if (sigCam !== est.rotSigCam) { est.rotSigCam = sigCam; est.rotMudou = agora; est.rotSujo = true; box.classList.add("movendo"); return; }
-      if (agora - est.rotMudou < 180) return;
-      const sigVis = cand.map(c => c.r.txt + (c.r.parte === est.selecionado ? "*" : "")).join("|");
-      if (!est.rotSujo && sigVis === est.rotSigVis) return;
-      est.rotSigVis = sigVis; est.rotSujo = false;
-      layoutChamadas(cand, w, h); box.classList.remove("movendo");
+      // só esconde enquanto o dedo/mouse está girando ou durante a transição de vista
+      const agora = performance.now(), mexendo = est.interagindo || est.voo || agora - (est.fimInteracao || 0) < 150;
+      if (mexendo) { box.classList.add("movendo"); est.rotSujo = true; return; }
+      const sigVis = cand.map(c => c.r.txt + (c.r.parte === est.selecionado ? "*" : "")).join("|") + "|" + w + "x" + h;
+      // reorganiza as caixas só se algo mudou ou se alguma estrutura se afastou muito da sua caixa (deslize da câmera)
+      const longe = cand.some(c => !c.r.caixa || Math.hypot(c.ax - c.r.caixa.ax, c.ay - c.r.caixa.ay) > 28);
+      if (est.rotSujo || sigVis !== est.rotSigVis || longe) { est.rotSigVis = sigVis; est.rotSujo = false; layoutChamadas(cand, w, h); }
+      else desenharLinhas(cand); // as linhas e os pontos acompanham a estrutura a cada quadro
+      box.classList.remove("movendo");
       return;
     }
     box.classList.remove("movendo");
@@ -332,15 +334,23 @@
       c.r.el.style.display = "none"; c.r.off = null;
     });
     (todos || lista).forEach(c => {
-      if (c.x === undefined) return;
+      if (c.x === undefined) { c.r.caixa = null; return; }
       c.r.el.style.transform = `translate(${c.x.toFixed(1)}px, ${c.y.toFixed(1)}px)`;
+      c.r.caixa = { x: c.x, y: c.y, cw: c.cw, ch: c.ch, lado: c.lado, ax: c.ax, ay: c.ay };
+    });
+    desenharLinhas(todos || lista);
+  }
+  function desenharLinhas(lista) {
+    const linhas = [];
+    lista.forEach(c => {
+      const b = c.r.caixa; if (!b || c.r.el.style.display === "none") return;
       let lx, ly;
-      if (c.lado === "l") { lx = c.x + c.cw; ly = c.y + c.ch / 2; }
-      else if (c.lado === "r") { lx = c.x; ly = c.y + c.ch / 2; }
-      else if (c.lado === "t") { lx = Math.max(c.x + 8, Math.min(c.x + c.cw - 8, c.ax)); ly = c.y + c.ch; }
-      else if (c.lado === "b") { lx = Math.max(c.x + 8, Math.min(c.x + c.cw - 8, c.ax)); ly = c.y; }
-      else { lx = Math.max(c.x + 6, Math.min(c.x + c.cw - 6, c.ax)); ly = c.ay < c.y ? c.y : c.ay > c.y + c.ch ? c.y + c.ch : c.y + c.ch / 2; }
-      const mx = c.lado === "l" ? lx + 10 : c.lado === "r" ? lx - 10 : lx, my = c.lado === "t" ? ly + 6 : c.lado === "b" ? ly - 6 : ly;
+      if (b.lado === "l") { lx = b.x + b.cw; ly = b.y + b.ch / 2; }
+      else if (b.lado === "r") { lx = b.x; ly = b.y + b.ch / 2; }
+      else if (b.lado === "t") { lx = Math.max(b.x + 8, Math.min(b.x + b.cw - 8, c.ax)); ly = b.y + b.ch; }
+      else if (b.lado === "b") { lx = Math.max(b.x + 8, Math.min(b.x + b.cw - 8, c.ax)); ly = b.y; }
+      else { lx = Math.max(b.x + 6, Math.min(b.x + b.cw - 6, c.ax)); ly = c.ay < b.y ? b.y : c.ay > b.y + b.ch ? b.y + b.ch : b.y + b.ch / 2; }
+      const mx = b.lado === "l" ? lx + 10 : b.lado === "r" ? lx - 10 : lx, my = b.lado === "t" ? ly + 6 : b.lado === "b" ? ly - 6 : ly;
       linhas.push(`<polyline points="${c.ax.toFixed(1)},${c.ay.toFixed(1)} ${mx.toFixed(1)},${my.toFixed(1)} ${lx.toFixed(1)},${ly.toFixed(1)}" stroke="${c.r.cor}"/><circle cx="${c.ax.toFixed(1)}" cy="${c.ay.toFixed(1)}" r="3.6" fill="${c.r.cor}" stroke="#08111f" stroke-width="1"/>`);
     });
     if (est.svgRot) est.svgRot.innerHTML = linhas.join("");
@@ -408,7 +418,10 @@
   // clique no palco (sem arrastar)
   const ray = new T.Raycaster(), mouse = new T.Vector2(); let baixo = null;
   renderer.domElement.addEventListener("wheel", () => est.usuarioMoveu = true, { passive: true });
-  renderer.domElement.addEventListener("pointerdown", e => { est.usuarioMoveu = true; baixo = [e.clientX, e.clientY]; ctl.autoRotate = false; $("#btnGirar").classList.remove("ativo"); $(".ajuda-gestos").classList.add("some"); });
+  const soltar = () => { if (est.interagindo) { est.interagindo = false; est.fimInteracao = performance.now(); } };
+  window.addEventListener("pointerup", soltar); window.addEventListener("pointercancel", soltar);
+  renderer.domElement.addEventListener("wheel", () => est.fimInteracao = performance.now(), { passive: true });
+  renderer.domElement.addEventListener("pointerdown", e => { est.usuarioMoveu = true; est.interagindo = true; baixo = [e.clientX, e.clientY]; ctl.autoRotate = false; $("#btnGirar").classList.remove("ativo"); $(".ajuda-gestos").classList.add("some"); });
   renderer.domElement.addEventListener("pointerup", e => {
     if (!baixo || Math.hypot(e.clientX - baixo[0], e.clientY - baixo[1]) > 6) return;
     const r = renderer.domElement.getBoundingClientRect();
@@ -728,7 +741,7 @@
     if (pedidoInstalacao) { pedidoInstalacao.prompt(); const r = await pedidoInstalacao.userChoice; if (r.outcome === "accepted") $("#btnInstalar").hidden = true; pedidoInstalacao = null; return; }
     trocarAba("saiba"); setTimeout(() => { const c = $("#cartaoInstalar"); if (c) { c.scrollIntoView({ behavior: "smooth" }); c.classList.add("piscar"); } }, 50);
   };
-  const VERSAO_APP = "7 · 15/11/2026";
+  const VERSAO_APP = "8 · 15/11/2026";
   let tinhaControlador = !!(navigator.serviceWorker && navigator.serviceWorker.controller);
   if ("serviceWorker" in navigator && location.protocol.startsWith("http")) {
     window.addEventListener("load", () => {
